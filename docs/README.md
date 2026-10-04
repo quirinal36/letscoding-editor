@@ -14,3 +14,6 @@
 6. [M0–M5 구현 결과와 기능 추적](./05-implementation-status.md)
 7. [선생님 안내](./06-teacher-guide.md)
 8. [라운지 연동 검토본](../integration/README.md)
+
+9. [코드·문서 관계 분석 보고서](../graphify-out/GRAPH_REPORT.md)
+   - [인터랙티브 그래프](../graphify-out/graph.html), [그래프 JSON](../graphify-out/graph.json), [추출 무결성 진단](../graphify-out/graph-health.json)
