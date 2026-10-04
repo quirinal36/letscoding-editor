@@ -2,6 +2,8 @@
 
 이 폴더는 에디터 앱에서 실행하지 않는다. 공유 DB 적용 및 라운지 코드 반영 전 검토할 완성된 계약·SQL·어댑터·배포 코어 변경안이다. 계정 연결 검증은 아직 하지 않았다.
 
+**2026-10-04 DB 적용 완료:** SQL 두 파일의 초기 계약을 라운지 소유 `20261004115026_create_editor_schema_tables.sql` 하나로 묶어 운영 DB에 적용했다. Data API의 `editor` 노출도 완료했다. 이 폴더 SQL은 계속 참고용이며 재실행하거나 독립 원장으로 사용하지 않는다. 라운지 서버 어댑터·내부 배포 route·배포 코어 patch는 아직 반영하지 않았다. [원본과 검증 기록](https://github.com/yudanah/letscoding_lounge/blob/master/docs/2026-10-04-editor-migration.md)
+
 2026-10-04 사용자 결정: 에디터 테이블·함수·시퀀스와 내부 배포 상태는 **`editor` 스키마**를 사용한다. 라운지 계정과 작품은 `public.profiles`, `public.projects`, Supabase Auth/Storage는 각각 기존 `auth`/`storage` 스키마를 유지한다. 테이블명은 `editor.editor_projects`처럼 기존 이름을 유지한다.
 
 migration 적용 뒤 Supabase Data API의 **Exposed schemas**에 `editor`를 기존 항목과 함께 추가해야 한다. SQL 제안서는 `authenticated`와 `service_role`에 schema USAGE를 부여하되 CREATE는 부여하지 않으며, 학생은 RLS에 따라 자기 자료만 조회하고 저장·RPC는 서버 전용이다. 공식 예제의 광범위한 ALL/기본 권한 부여를 추가하지 않는다. [Supabase custom schemas 안내](https://supabase.com/docs/guides/api/using-custom-schemas)

@@ -14,7 +14,7 @@
 
 ### 배포 후 남은 연결
 
-1. 2026-10-04 사용자 결정으로 에디터 테이블·RPC·시퀀스는 **`editor` 스키마**를 사용한다. 서버 코드와 integration SQL 제안서를 수정했다. 라운지 계정·작품은 `public.profiles`, `public.projects`를 유지한다. Data API를 `Accept-Profile: editor`로 조회했을 때 `406/PGRST106`으로 응답해 아직 노출되지 않았다. 공유 DB 변경안을 라운지 저장소의 migration으로 검토·반영하고 Data API Exposed schemas에 `editor`를 추가한 뒤 저장/RLS를 검증해야 한다. 실제 DB 변경은 하지 않았다.
+1. **2026-10-04 적용 완료:** 사용자 승인으로 라운지 원본 `20261004115026_create_editor_schema_tables.sql`을 운영 DB에 적용했다. `editor` 테이블 10개(RLS 모두 켬), 서버 RPC 5개, 비공개 파일/첨부 버킷 2개를 생성했고 Aside CLI로 Data API Exposed schemas에 `editor`만 추가했다. 라운지 계정·작품은 기존 `public.profiles`, `public.projects`를 유지한다. 로컬/운영 원장은 383건 일치, 미적용 0건이다. 자세한 원본/검증 기록은 [라운지 적용 문서](https://github.com/yudanah/letscoding_lounge/blob/master/docs/2026-10-04-editor-migration.md)를 참조한다. 실제 계정 로그인·signed upload를 포함한 브라우저 인수 검증은 남는다.
 2. 2026-10-04 사용자 승인으로 Aside CLI에서 Supabase Auth redirect 허용 목록에 `https://editor.letscoding.kr/auth/callback`을 추가했다. `http://localhost:3100/auth/callback`, `http://127.0.0.1:3100/auth/callback`은 이미 등록되어 있었다. 기존 Site URL(`https://lounge.letscoding.kr`)과 다른 redirect 설정은 유지했다. 로그인 링크 발송과 실제 테스트 계정 로그인은 아직 하지 않았다.
 3. staging 환경을 확정하고 Preview/Development의 환경변수를 별도로 연결한다.
 4. AI 요청당 예산 및 이미지 입력·출력 예산, 모델/공급자 호환성 검증 뒤 각 기능을 활성화한다. 라운지 내부 배포 API도 반영·검증 전에는 활성화하지 않는다.
@@ -46,7 +46,7 @@
 - `EDITOR_DEMO_MODE=true`: 개발 데모. 클라우드 검증할 때 `false`로 바꾼다. production에서는 무조건 무시한다.
 - `NEXT_PUBLIC_*` 설정 변경은 앱 재빌드/재배포가 필요하다. 로컬 설정을 채운 뒤 개발 서버를 다시 시작한다.
 - 서버 저장: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. service role은 서버 전용이다. staging 미확인 상태에서 운영 DB를 개발 기본값으로 넣지 않는다.
-- DB 스키마: 에디터 REST/RPC의 기본 schema는 `editor`. 계정 조회는 `public.profiles`를 명시하며 Auth와 Storage는 기존 API를 사용한다. SQL 적용과 API schema 노출은 별도 단계다. 스키마 권한·저장 충돌·RLS 테스트와 SDK의 실제 REST/RPC profile 헤더 테스트를 포함해 12개 테스트, build, E2E 5개를 통과했다.
+- DB 스키마: 에디터 REST/RPC의 기본 schema는 `editor`. 계정 조회는 `public.profiles`를 명시하며 Auth와 Storage는 기존 API를 사용한다. SQL 적용과 API schema 노출을 완료했다. 운영 DB transaction에서 저장·버전·CAS·예산 정산·다른 사용자 RLS·서버 RPC 권한을 확인하고 시험 데이터를 모두 rollback했다. 서버 REST 조회 HTTP 200, 세션 없는 익명 요청 HTTP 401(`42501`)을 확인했다. 코드 검사는 12개 테스트 통과이며, 직전 스키마 변경 배포에서 build와 E2E 5개도 통과했다.
 - 실제 AI: `EDITOR_AI_ENABLED=true`, 전용 `OPENROUTER_API_KEY`, 허용 모델, 양수인 `EDITOR_AI_DAILY_LIMIT_USD`, `EDITOR_AI_MONTHLY_LIMIT_USD`, `EDITOR_AI_MAX_TURN_USD`. 모델 가격이 확인되지 않거나 예약 예산을 확보하지 못하면 호출을 중단한다.
 - 비전 입력: 선택한 비전 모델의 보수적 이미지 입력 비용을 측정한 뒤 `EDITOR_AI_IMAGE_INPUT_RESERVE_USD`를 설정한다. 이미지 생성도 `EDITOR_IMAGE_ENABLED=true`, 출력 모델과 `EDITOR_AI_IMAGE_OUTPUT_RESERVE_USD`를 추가로 요구한다. 이미지 생성 비용·크기 지원은 모델마다 실제로 검증한다.
 - 앱 예약 한도는 공급자의 청구 상한을 대신하지 않는다. 중단/응답 유실 때 실제 비용을 모르면 예약 금액을 보수적으로 기록한다. 공급자 key/workspace 한도와 월 알림을 별도로 설정하고 미정산 예약은 공급자 로그와 대사한다. 임의로 0원 처리하지 않는다.
