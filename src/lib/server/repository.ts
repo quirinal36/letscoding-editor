@@ -155,7 +155,7 @@ export async function save(
       if (!f.storagePath?.startsWith(`${user.id}/${project.id}/`))
         throw new Error(`${path}: 올바른 업로드 경로가 필요합니다.`);
       const blob = await db.storage.from("editor-files").info(f.storagePath);
-      if (blob.error || Number(blob.data.metadata?.size) !== f.size)
+      if (blob.error || Number(blob.data.size) !== f.size)
         throw new Error(`${path}: 업로드 파일 크기를 검증하지 못했습니다.`);
     }
     files.push({

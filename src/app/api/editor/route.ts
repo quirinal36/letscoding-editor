@@ -15,7 +15,7 @@ import {
 } from "@/lib/server/repository";
 import { generateImageFile } from "@/lib/server/image";
 import { chat, chatInput } from "@/lib/server/ai";
-import { appConfig, positive } from "@/lib/server/config";
+import { appConfig, positive, turnReservation } from "@/lib/server/config";
 import { deploy, deployForm } from "@/lib/server/deploy";
 import { applyProposal, assertPath, LIMITS } from "@/lib/vfs";
 import { createProject } from "@/lib/templates";
@@ -230,7 +230,7 @@ export async function POST(request: Request) {
     }
     if (action === "chat") {
       const input = chatInput.parse(body);
-      return chat(user, await get(user, input.projectId), input, request);
+      return await chat(user, await get(user, input.projectId), input, request);
     }
     if (action === "approve" || action === "reject") {
       const project = await get(user, uuid.parse(body.projectId));
@@ -314,9 +314,13 @@ export async function POST(request: Request) {
       const maxTurn = positive("EDITOR_AI_MAX_TURN_USD");
       if (positive("EDITOR_AI_IMAGE_OUTPUT_RESERVE_USD") > maxTurn)
         throw new Error("이미지 출력 예산이 요청당 한도를 초과했습니다.");
+      const reservedUsd = turnReservation(
+        positive("EDITOR_AI_IMAGE_OUTPUT_RESERVE_USD"),
+        maxTurn,
+      );
       const project = await get(user, input.projectId),
-        reservation = await reserve(user, maxTurn);
-      let cost = maxTurn,
+        reservation = await reserve(user, reservedUsd);
+      let cost = reservedUsd,
         promptTokens = 0,
         completionTokens = 0;
       try {

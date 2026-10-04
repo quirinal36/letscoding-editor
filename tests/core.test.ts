@@ -180,3 +180,13 @@ test("forged ZIP metadata cannot bypass streaming inflation cap", async () => {
     }
   await assert.rejects(() => importArtifact(bytes), /크기|size/);
 });
+
+test("turn reservations use estimated cost without raising the per-turn ceiling", async () => {
+  const { turnReservation } = await import("../src/lib/server/config");
+  assert.equal(turnReservation(0.03, 10), 0.03);
+  assert.equal(turnReservation(10, 10), 10);
+  assert.equal(turnReservation(0, 10), 0.000001);
+  for (const estimate of [10.01, NaN, Infinity, -1])
+    assert.throws(() => turnReservation(estimate, 10), /예산/);
+  assert.throws(() => turnReservation(0.03, 0), /예산/);
+});

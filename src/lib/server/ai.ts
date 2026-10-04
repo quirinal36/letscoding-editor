@@ -4,7 +4,7 @@ import { streamText, stepCountIs, tool } from "ai";
 import { z } from "zod";
 import type { ChatMessage, Project, Proposal, SessionUser } from "../types";
 import { assertPath, LIMITS } from "../vfs";
-import { appConfig, positive } from "./config";
+import { appConfig, positive, turnReservation } from "./config";
 import { admin, get, reserve, save, settle } from "./repository";
 export const chatInput = z.object({
   projectId: z.string().uuid(),
@@ -94,11 +94,8 @@ export async function chat(
   const maxTurn = positive("EDITOR_AI_MAX_TURN_USD");
   if (input.images.length && !positive("EDITOR_AI_IMAGE_INPUT_RESERVE_USD"))
     throw new Error("비전 입력 예산을 설정한 뒤 사용할 수 있습니다.");
-  if (upper + imageReserve > maxTurn)
-    throw new Error(
-      "현재 모델과 문맥이 요청당 예산을 초과합니다. 대화를 새로 시작하거나 모델을 변경해주세요.",
-    );
-  const reservation = await reserve(user, maxTurn);
+  const reservedUsd = turnReservation(upper + imageReserve, maxTurn);
+  const reservation = await reserve(user, reservedUsd);
   const proposals: Proposal[] = [],
     tools: NonNullable<ChatMessage["tools"]> = [];
   let mutationCount = 0,
@@ -201,7 +198,7 @@ export async function chat(
             controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
           } catch {}
         };
-        let cost = maxTurn,
+        let cost = reservedUsd,
           promptTokens = 0,
           completionTokens = 0;
         try {

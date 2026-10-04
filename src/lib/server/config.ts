@@ -59,3 +59,19 @@ export function appConfig(): AppConfig {
     models,
   };
 }
+
+/** Reserve a conservative estimate, bounded by the configured per-turn ceiling. */
+export function turnReservation(estimate: number, ceiling: number) {
+  const amount = Math.max(estimate, 0.000001);
+  if (
+    !Number.isFinite(estimate) ||
+    estimate < 0 ||
+    !Number.isFinite(ceiling) ||
+    ceiling <= 0 ||
+    amount > ceiling
+  )
+    throw new Error(
+      "현재 모델과 문맥이 요청당 예산을 초과합니다. 대화를 새로 시작하거나 모델을 변경해주세요.",
+    );
+  return amount;
+}

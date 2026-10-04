@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createClient } from "@supabase/supabase-js";
-import { admin } from "../src/lib/server/repository";
+import { admin, save } from "../src/lib/server/repository";
 import { createLoungeServices } from "../integration/lounge-services";
 
 test("editor REST/RPC use editor schema while lounge profiles and storage keep their namespaces", async () => {
@@ -59,6 +59,64 @@ test("editor REST/RPC use editor schema while lounge profiles and storage keep t
       requests.filter((request) => request.path.endsWith("/profiles")).length,
       2,
     );
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    else process.env.NEXT_PUBLIC_SUPABASE_URL = previousUrl;
+    if (previousKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    else process.env.SUPABASE_SERVICE_ROLE_KEY = previousKey;
+  }
+});
+
+test("signed uploads validate Storage info size and reject forged sizes or foreign paths", async () => {
+  const previousUrl = process.env.NEXT_PUBLIC_SUPABASE_URL,
+    previousKey = process.env.SUPABASE_SERVICE_ROLE_KEY,
+    previousFetch = globalThis.fetch;
+  const user = { id: crypto.randomUUID(), role: "student" as const };
+  const projectId = crypto.randomUUID();
+  let size: number | undefined = 68;
+  let saves = 0;
+  const project = {
+    id: projectId,
+    title: "Upload regression",
+    template: "blank",
+    revision: 0,
+    updatedAt: new Date().toISOString(),
+    threads: [],
+    deployments: [],
+    files: {
+      "pixel.png": {
+        kind: "binary" as const,
+        content: "",
+        mime: "image/png",
+        size: 68,
+        storagePath: `${user.id}/${projectId}/pixel`,
+      },
+    },
+  };
+  try {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "test-only-key";
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      const pathname = new URL(request.url).pathname;
+      if (pathname.startsWith("/storage/v1/object/info/")) {
+        return Response.json({ size, metadata: {} });
+      }
+      assert.equal(pathname, "/rest/v1/rpc/editor_save_project");
+      saves++;
+      return Response.json({ revision: 1, metadataRevision: 1 });
+    };
+    await save(user, project, 0);
+    assert.equal(saves, 1);
+    size = 69;
+    await assert.rejects(save(user, project, 0), /업로드 파일 크기/);
+    size = undefined;
+    await assert.rejects(save(user, project, 0), /업로드 파일 크기/);
+    project.files["pixel.png"].storagePath =
+      `${crypto.randomUUID()}/${projectId}/pixel`;
+    await assert.rejects(save(user, project, 0), /올바른 업로드 경로/);
+    assert.equal(saves, 1);
   } finally {
     globalThis.fetch = previousFetch;
     if (previousUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
