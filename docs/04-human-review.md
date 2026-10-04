@@ -2,6 +2,24 @@
 
 > 2026-10-04 · 사용자 결정: 추천 기반 구성 채택, AI 예산은 개발 이후 결정, 계정은 사용자가 준비하고 `.env.local`을 채움. 현재 코드 검증에는 외부 계정·유료 모델·라이브 DB를 사용하지 않았다.
 
+## 운영 앱 배포 기록 — 2026-10-04
+
+- 사용자가 Vercel 배포·Cloudflare DNS 설정과, 로컬 설정의 비밀값을 아래 프로젝트 Production 환경변수로 등록하는 것을 명시 승인했다. 값은 출력하거나 커밋하지 않았다.
+- Vercel: 기존 `Nana's projects` 팀(`nanas-projects-c600db2d`)의 별도 `letscoding-editor` 프로젝트. ID: `prj_WusiTvLm08JwFd4Ch2Bb9Ma11p6g`.
+- [프로젝트 관리](https://vercel.com/nanas-projects-c600db2d/letscoding-editor), [운영 앱](https://editor.letscoding.kr). GitHub `quirinal36/letscoding-editor`의 `main`을 연결했다. 구현 커밋은 `96a1ffc`이며 Next.js, Node 24.x, `npm run build`를 사용한다.
+- Cloudflare: `letscoding.kr` zone에 `editor` CNAME → `e2bb543fd90282bf.vercel-dns-016.com`, 프록시 끔(DNS only), TTL 자동. Vercel이 안내한 프로젝트 대상값으로 설정했으며 기존 레코드는 변경하지 않았다.
+- Production에 입력된 필수 설정을 등록했다. `NEXT_PUBLIC_APP_URL=https://editor.letscoding.kr`, `EDITOR_DEMO_MODE=false`, AI·이미지·작품 배포 활성화 플래그는 모두 `false`. Preview/Development에는 운영 비밀값을 복사하지 않았다.
+- 배포 전 `npm run check`(11개 테스트), `npm run build`, `npm run test:e2e`(5개 테스트)가 통과했다. E2E는 실행 중이던 로그인용 개발 서버를 종료하고 별도 데모 설정으로 실행한 뒤 원래 개발 서버를 복구했다.
+- 운영 도메인은 유효한 HTTPS로 HTTP 200과 `렛츠코딩 에디터` 제목을 확인했다. 이는 앱/도메인 확인이며 로그인·프로젝트 저장의 통합 검증 완료를 뜻하지 않는다.
+
+### 배포 후 남은 연결
+
+1. 입력된 Supabase에서 `editor_projects`, `editor_files`, `editor_ai_threads`가 REST 조회 시 404로 응답했다(`editor_ai_threads`: `PGRST205`). 공유 DB 변경안을 라운지 저장소의 migration으로 검토·반영하고 저장/RLS를 검증해야 한다. 이번 배포에서 DB 변경은 하지 않았다.
+2. Supabase Auth의 redirect 허용 목록에 `https://editor.letscoding.kr/auth/callback`을 추가했는지 확인하고 실제 테스트 계정으로 로그인한다. 이번 작업에서 인증 설정 변경·로그인 링크 발송은 하지 않았다.
+3. staging 환경을 확정하고 Preview/Development의 환경변수를 별도로 연결한다.
+4. AI 요청당 예산 및 이미지 입력·출력 예산, 모델/공급자 호환성 검증 뒤 각 기능을 활성화한다. 라운지 내부 배포 API도 반영·검증 전에는 활성화하지 않는다.
+5. Sentry와 정리 cron은 계정·보존 정책 검토 후 연결한다.
+
 ## 지금 할 수 있는 검토
 
 `npm ci` → `npm run dev` → `http://localhost:3100`에서 로컬 데모를 연다. 첫 클릭 게임, 파일/폴더 작업, “버튼 색을 파랗게 바꿔줘” → 비교 → 승인, 미리보기, 배포 ZIP 검증을 확인한다. 데모 데이터는 **이 브라우저의 IndexedDB**에 저장된다. 다른 기기/서버로 자동 이전되지 않으므로 중요한 작업은 ZIP으로 보관한다. 데모에서는 실제 모델·라운지 작품·배포 링크를 만들지 않는다.
