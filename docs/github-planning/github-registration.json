@@ -1,0 +1,428 @@
+{
+  "registered_on": "2026-10-04",
+  "milestones": {
+    "M0": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 1,
+      "url": "https://github.com/quirinal36/letscoding-editor/milestone/1",
+      "title": "M0 — 준비·정책·기술 검증"
+    },
+    "M1": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 2,
+      "url": "https://github.com/quirinal36/letscoding-editor/milestone/2",
+      "title": "M1 — 정적 웹 편집·서버 저장·격리 미리보기"
+    },
+    "M2": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 3,
+      "url": "https://github.com/quirinal36/letscoding-editor/milestone/3",
+      "title": "M2 — AI 읽기·쓰기·승인"
+    },
+    "M3": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 4,
+      "url": "https://github.com/quirinal36/letscoding-editor/milestone/4",
+      "title": "M3 — 멀티모달·모델·사용량"
+    },
+    "M4": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 5,
+      "url": "https://github.com/quirinal36/letscoding-editor/milestone/5",
+      "title": "M4 — 라운지 배포·재배포"
+    },
+    "M5": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 6,
+      "url": "https://github.com/quirinal36/letscoding-editor/milestone/6",
+      "title": "M5 — 안정화·파일럿·출시"
+    },
+    "LOUNGE-M4": {
+      "repo": "yudanah/letscoding_lounge",
+      "number": 6,
+      "url": "https://github.com/yudanah/letscoding_lounge/milestone/6",
+      "title": "Editor M4 — 에디터 연동·배포 계약"
+    }
+  },
+  "issues": {
+    "E-00": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 1,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/1",
+      "title": "[EPIC] E-00 — 착수 결정과 기술 검증"
+    },
+    "E-01": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 2,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/2",
+      "title": "[EPIC] E-01 — 앱 기반·계정·프로젝트·셸"
+    },
+    "E-02": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 3,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/3",
+      "title": "[EPIC] E-02 — 탐색기·업로드·프로젝트 템플릿"
+    },
+    "E-03": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 4,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/4",
+      "title": "[EPIC] E-03 — Monaco·탭·저장·뷰어"
+    },
+    "E-04": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 5,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/5",
+      "title": "[EPIC] E-04 — 미리보기·상대 경로·격리·진단"
+    },
+    "E-05": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 6,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/6",
+      "title": "[EPIC] E-05 — AI 대화·파일 도구·승인"
+    },
+    "E-06": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 7,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/7",
+      "title": "[EPIC] E-06 — 멀티모달·모델·비용 통제"
+    },
+    "E-07": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 8,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/8",
+      "title": "[EPIC] E-07 — 에디터 배포 파이프라인"
+    },
+    "E-08": {
+      "repo": "yudanah/letscoding_lounge",
+      "number": 214,
+      "url": "https://github.com/yudanah/letscoding_lounge/issues/214",
+      "title": "[EPIC] E-08 — 라운지 선행 계약·권한·정책 공유"
+    },
+    "E-09": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 9,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/9",
+      "title": "[EPIC] E-09 — 안정화·접근성·운영·출시"
+    },
+    "E-10": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 10,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/10",
+      "title": "[EPIC] E-10 — 후속 기능 백로그"
+    },
+    "I-001": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 11,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/11",
+      "title": "I-001 — 착수 범위·계정·배포·데이터 소유 결정"
+    },
+    "I-002": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 12,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/12",
+      "title": "I-002 — AI 비용·모델·용량·첨부 보존·템플릿 정책 결정"
+    },
+    "I-003": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 13,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/13",
+      "title": "I-003 — 문서 충돌과 MVP 완료 범위 확정"
+    },
+    "I-004": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 14,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/14",
+      "title": "I-004 — Monaco·언어 워커·채팅 UI·라이선스 검증"
+    },
+    "I-005": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 15,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/15",
+      "title": "I-005 — OpenRouter 도구 스트리밍·비전·이미지·턴 제한 검증"
+    },
+    "I-006": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 16,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/16",
+      "title": "I-006 — 미리보기 상대 경로·격리·브라우저 검증"
+    },
+    "I-007": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 17,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/17",
+      "title": "I-007 — 파일 저장·서명 업로드·ZIP 검증 계약 확인"
+    },
+    "I-008": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 18,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/18",
+      "title": "I-008 — 저장소 규약·Next.js·환경변수·CI 뼈대"
+    },
+    "I-009": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 19,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/19",
+      "title": "I-009 — 공유 Auth 로그인·역할·비로그인 접근 차단"
+    },
+    "I-010": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 20,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/20",
+      "title": "I-010 — editor 데이터 모델·RLS·비공개 Storage·VFS 저장 계약"
+    },
+    "I-011": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 21,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/21",
+      "title": "I-011 — 프로젝트 목록·생성·이름 변경·삭제 보관"
+    },
+    "I-012": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 22,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/22",
+      "title": "I-012 — 3열 셸·패널 접기·프로젝트 바"
+    },
+    "I-013": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 23,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/23",
+      "title": "I-013 — 셸·Monaco·트리·채팅 공통 테마"
+    },
+    "I-014": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 24,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/24",
+      "title": "I-014 — 파일 트리·생성·이름 변경·삭제·금지 파일 경고"
+    },
+    "I-015": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 25,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/25",
+      "title": "I-015 — 파일 드래그 이동·이름 검색"
+    },
+    "I-016": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 26,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/26",
+      "title": "I-016 — 이미지·텍스트 파일 업로드"
+    },
+    "I-017": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 27,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/27",
+      "title": "I-017 — ZIP 가져오기·용량 표시"
+    },
+    "I-018": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 28,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/28",
+      "title": "I-018 — Monaco·탭·되돌리기·찾기 바꾸기"
+    },
+    "I-019": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 29,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/29",
+      "title": "I-019 — 자동 저장·즉시 저장·단일 편집자 경고"
+    },
+    "I-020": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 30,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/30",
+      "title": "I-020 — 이미지 뷰어·큰 파일 처리"
+    },
+    "I-021": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 31,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/31",
+      "title": "I-021 — 언어 자동완성·오류 표시·첫 로드·브라우저 호환"
+    },
+    "I-022": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 32,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/32",
+      "title": "I-022 — 격리된 iframe 미리보기·상대 경로·자동 갱신"
+    },
+    "I-023": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 33,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/33",
+      "title": "I-023 — 미리보기 콘솔·오류 위치 이동·새 창"
+    },
+    "I-024": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 34,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/34",
+      "title": "I-024 — 템플릿 3종·프로젝트 복제"
+    },
+    "I-025": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 35,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/35",
+      "title": "I-025 — AI 스트리밍·중단·스레드·도구 표시"
+    },
+    "I-026": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 36,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/36",
+      "title": "I-026 — 컨텍스트·읽기 도구·데이터 정책"
+    },
+    "I-027": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 37,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/37",
+      "title": "I-027 — 쓰기 제안·승인·자동 적용·인젝션 방어"
+    },
+    "I-028": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 38,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/38",
+      "title": "I-028 — Monaco diff·AI 변경 배지"
+    },
+    "I-029": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 39,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/39",
+      "title": "I-029 — 선택 영역 첨부·응답 코드 파일 저장"
+    },
+    "I-030": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 40,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/40",
+      "title": "I-030 — 미리보기 오류 AI 도구 연동"
+    },
+    "I-031": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 41,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/41",
+      "title": "I-031 — AI 공개 전 최소 사용량 기록·예산 차단"
+    },
+    "I-032": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 42,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/42",
+      "title": "I-032 — 비전 이미지 첨부·보존 정책"
+    },
+    "I-033": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 43,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/43",
+      "title": "I-033 — 이미지 생성 도구·프로젝트 파일 반영"
+    },
+    "I-034": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 44,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/44",
+      "title": "I-034 — 모델 선택·일일 사용량·잔여 상태바"
+    },
+    "I-035": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 45,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/45",
+      "title": "I-035 — 배포 ZIP 생성·검증·다운로드"
+    },
+    "I-036": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 46,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/46",
+      "title": "I-036 — 라운지 인증 연동·첫 배포·권한 안내"
+    },
+    "I-037": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 47,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/47",
+      "title": "I-037 — 재배포·결과 링크·이력·삭제 연결 복구"
+    },
+    "L-001": {
+      "repo": "yudanah/letscoding_lounge",
+      "number": 215,
+      "url": "https://github.com/yudanah/letscoding_lounge/issues/215",
+      "title": "L-001 — 라운지 내부 배포 인증·요청 계약"
+    },
+    "L-002": {
+      "repo": "yudanah/letscoding_lounge",
+      "number": 216,
+      "url": "https://github.com/yudanah/letscoding_lounge/issues/216",
+      "title": "L-002 — 라운지 작품 생성·갱신·캐시·멱등성 계약"
+    },
+    "L-003": {
+      "repo": "yudanah/letscoding_lounge",
+      "number": 217,
+      "url": "https://github.com/yudanah/letscoding_lounge/issues/217",
+      "title": "L-003 — 출처 메타데이터·ZIP 정책 공유"
+    },
+    "L-004": {
+      "repo": "yudanah/letscoding_lounge",
+      "number": 218,
+      "url": "https://github.com/yudanah/letscoding_lounge/issues/218",
+      "title": "L-004 — 라운지 권한 차단·연동 문서"
+    },
+    "I-038": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 48,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/48",
+      "title": "I-038 — 키보드 접근성·대비"
+    },
+    "I-039": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 49,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/49",
+      "title": "I-039 — 오류 추적·구조화 로그·사용량 대시보드"
+    },
+    "I-040": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 50,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/50",
+      "title": "I-040 — VFS·도구·ZIP 단위 검증·전체 E2E"
+    },
+    "I-041": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 51,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/51",
+      "title": "I-041 — 명령 팔레트·마크다운·포맷·기기 폭"
+    },
+    "I-042": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 52,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/52",
+      "title": "I-042 — 개인정보·동의·키·월 상한·운영비 출시 점검"
+    },
+    "I-043": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 53,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/53",
+      "title": "I-043 — 학생 5명 파일럿·교사 안내·명세 상태 대조"
+    },
+    "F-001": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 54,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/54",
+      "title": "F-001 — 음성 입력"
+    },
+    "F-002": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 55,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/55",
+      "title": "F-002 — 파일 버전 기록·되돌리기"
+    },
+    "F-003": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 56,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/56",
+      "title": "F-003 — 미리보기 기반 자동 썸네일"
+    },
+    "F-004": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 57,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/57",
+      "title": "F-004 — 기관 범위 선생님 읽기 전용 열람"
+    },
+    "F-005": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 58,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/58",
+      "title": "F-005 — React·TS 번들링 및 WebContainers 라이선스 검토"
+    }
+  },
+  "verified_on": "2026-10-04"
+}

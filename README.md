@@ -1,11 +1,27 @@
 # letscoding-editor
 
-브라우저에서 열리는 VS Code 모양의 코딩 에디터. 왼쪽 파일 탐색기, 가운데 텍스트·이미지 편집기, 오른쪽에 파일을 직접 고칠 수 있는 AI 채팅(OpenRouter)을 두고, 결과물을 렛츠코딩 라운지 작품으로 배포한다.
+Monaco 코드 편집기, 프로젝트 VFS, 승인 방식 AI 도우미, 격리 미리보기, 라운지 ZIP 배포 연동을 구현한 Next.js 앱입니다.
 
-아직 코드가 없다. 계획 문서부터 시작한다.
+```sh
+npm ci
+npm run dev
+```
 
-- [docs/01-project-plan.md](./docs/01-project-plan.md): 구현 계획, 레이아웃 선택 근거(VS Code 포크 대신 Monaco + 자체 셸), 아키텍처, 일정
-- [docs/02-checklist.md](./docs/02-checklist.md): 착수 전 결정, 라운지 선행 작업, 기술 검증, 단계별 완료 확인, 출시 전 점검
-- 기능 명세서: Google Sheets `렛츠코딩 에디터 기능 명세서` (연결된 Google 계정 드라이브)
+[http://localhost:3100](http://localhost:3100)에서 외부 계정 없이 로컬 데모를 사용할 수 있습니다. 파일·대화는 브라우저 IndexedDB에 저장됩니다. 데모 AI는 예시 변경안을 만들며 실제 배포 대신 ZIP을 검증합니다.
 
-관련 저장소: [letscoding_lounge](../letscoding_lounge) (배포 대상), [letscoding-agent-platform](../letscoding-agent-platform) (ZIP 정책·검증기)
+실제 저장·AI·배포는 [`.env.example`](./.env.example)을 참고해 `.env.local`을 채우고 기능을 활성화한 뒤 연결을 검증해야 합니다. AI 예산은 개발 이후 결정하며 초기 유료 호출은 비활성입니다. production에서는 데모를 사용할 수 없습니다.
+
+```sh
+npm run check          # 타입, 린트, VFS/ZIP/HMAC/Postgres 테스트
+npm run build          # 운영 빌드
+npm run test:e2e       # 외부 서비스 없는 Chromium 흐름 검사
+npm run check:env      # 비밀값 없이 설정 상태 확인
+```
+
+- [구현 결과와 마일스톤별 검증](./docs/05-implementation-status.md)
+- [사용자 준비·사람 검토 항목](./docs/04-human-review.md)
+- [라운지 코드·공유 DB 반영 검토본](./integration/README.md)
+- [선생님 안내](./docs/06-teacher-guide.md)
+- [문서 목록과 GitHub 등록 결과](./docs/README.md)
+
+공유 DB migration 원본은 라운지 저장소가 소유합니다. `integration/` SQL과 patch는 미적용 검토본이며, 운영 배포·유료 모델 검증·학생 파일럿을 완료로 간주하지 않습니다.

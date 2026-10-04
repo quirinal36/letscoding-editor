@@ -6,11 +6,11 @@
 
 ## A. 착수 전 결정 (사람이 정해야 함)
 
-- [ ] A-01 저장소 이름과 위치: `letscoding-editor` (이 디렉터리) 확정, GitHub 원격 생성
-- [ ] A-02 도메인: `editor.letscoding.kr` 사용 여부, Vercel 팀·프로젝트 생성 주체
-- [ ] A-03 Supabase: 라운지와 **같은 프로젝트**(`zuynxiriimaimjmjnntc`)에 `editor_*` 테이블을 두는지, 별도 프로젝트로 가는지. 같은 프로젝트면 마이그레이션 소유는 라운지 저장소 규약(docs/41)을 따른다
-- [ ] A-04 라운지 연동 방식: 계획서 5.3의 A(Bearer JWT) / B(HMAC 내부 API) / C(모노레포 마운트) 중 선택. 권장 B
-- [ ] A-05 대상 사용자 1차: 학생만인지, 선생님 열람까지인지
+- [x] A-01 저장소 이름과 위치: `letscoding-editor` (이 디렉터리) 확정, GitHub 원격 생성 (2026-10-04: `quirinal36/letscoding-editor` 원격 및 마일스톤·이슈 등록 확인)
+- [x] A-02 도메인: 2026-10-04 추천안 채택(기존 Vercel 팀의 별도 앱, `editor.letscoding.kr`); 실제 생성·DNS 미진행. 기존 항목: `editor.letscoding.kr` 사용 여부, Vercel 팀·프로젝트 생성 주체
+- [x] A-03 Supabase: 2026-10-04 환경별 라운지 공유 DB와 라운지 migration 소유 채택; staging 대상 확인·적용 대기. 기존 항목: 라운지와 **같은 프로젝트**(`zuynxiriimaimjmjnntc`)에 `editor_*` 테이블을 두는지, 별도 프로젝트로 가는지. 같은 프로젝트면 마이그레이션 소유는 라운지 저장소 규약(docs/41)을 따른다
+- [x] A-04 라운지 연동 방식: 2026-10-04 권장 B(HMAC) 채택. 기존 항목: 계획서 5.3의 A(Bearer JWT) / B(HMAC 내부 API) / C(모노레포 마운트) 중 선택. 권장 B
+- [x] A-05 대상 사용자 1차: 추천안대로 학생 중심·본인 소유 프로젝트; 다른 학생 열람은 2차. 기존 항목: 학생만인지, 선생님 열람까지인지
 - [ ] A-06 AI 비용 정책: 사용자별 일일 한도(토큰 또는 USD), 초과 시 동작(중단/저가 모델), 루캣 연동 여부
 - [ ] A-07 기본 모델 4종(코딩·보조·비전·이미지 생성) 선정과 월 예산 상한
 - [ ] A-08 프로젝트 용량 한도: 프로젝트당 파일 수·총 용량(라운지 배포 한도 30MB/100MB/500파일보다 작거나 같게)
@@ -43,6 +43,8 @@
 - [ ] C-12 Monaco 라이선스(MIT)와 `monaco-editor` 안의 폰트·아이콘(codicon) 재배포 조건 확인
 
 ## D. 단계별 완료 확인
+
+2026-10-04: M0–M5 코드·로컬 검사 결과는 [05-implementation-status](./05-implementation-status.md)에 별도로 기록했다. 아래 체크박스는 실제 서비스 연결과 원문 인수 기준까지 확인해야 닫는다.
 
 ### D-0 준비
 - [ ] 저장소에 `AGENTS.md`·`CLAUDE.md`·`docs/README.md` 뼈대 (라운지 규약 복제)

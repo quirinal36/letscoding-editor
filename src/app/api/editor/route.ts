@@ -1,0 +1,372 @@
+import * as Sentry from "@sentry/nextjs";
+import { logAction } from "@/lib/observability";
+import { z } from "zod";
+import {
+  activeUser,
+  admin,
+  authenticate,
+  get,
+  list,
+  projectInput,
+  reserve,
+  save,
+  settle,
+  uuid,
+} from "@/lib/server/repository";
+import { generateImageFile } from "@/lib/server/image";
+import { chat, chatInput } from "@/lib/server/ai";
+import { appConfig, positive } from "@/lib/server/config";
+import { deploy, deployForm } from "@/lib/server/deploy";
+import { applyProposal, assertPath, LIMITS } from "@/lib/vfs";
+import { createProject } from "@/lib/templates";
+import type { Project } from "@/lib/types";
+export const runtime = "nodejs";
+export const maxDuration = 300;
+export async function POST(request: Request) {
+  let telemetry:
+    | { userId: string; action: string; projectId?: string; threadId?: string }
+    | undefined;
+  try {
+    if (!request.headers.get("content-type")?.startsWith("application/json"))
+      return Response.json(
+        { error: "JSON 요청이 필요합니다." },
+        { status: 415 },
+      );
+    const user = await authenticate(request);
+    activeUser(user);
+    const raw = await request.text();
+    if (raw.length > 4 * 1024 * 1024)
+      return Response.json(
+        { error: "요청이 너무 큽니다. 파일은 서명 업로드를 사용하세요." },
+        { status: 413 },
+      );
+    const body = JSON.parse(raw);
+    const action = z
+      .enum([
+        "session",
+        "list",
+        "get",
+        "create",
+        "save",
+        "delete",
+        "duplicate",
+        "rename-project",
+        "upload",
+        "attachment-upload",
+        "thread",
+        "chat",
+        "approve",
+        "reject",
+        "usage",
+        "deploy",
+        "unlink",
+        "image",
+      ])
+      .parse(body.action);
+    const telemetryId = (value: unknown) =>
+      typeof value === "string" && /^[a-f0-9-]{36}$/.test(value)
+        ? value
+        : undefined;
+    telemetry = {
+      userId: user.id,
+      action,
+      projectId: telemetryId(body.projectId ?? body.project?.id),
+      threadId: telemetryId(body.threadId),
+    };
+    logAction(action, user.id, {
+      ...body,
+      projectId: body.projectId ?? body.project?.id,
+    });
+    if (action === "session") return Response.json(user);
+    if (action === "list") return Response.json(await list(user));
+    if (action === "get")
+      return Response.json(await get(user, uuid.parse(body.projectId)));
+    if (action === "create") {
+      const input = z
+        .object({
+          template: z.enum(["blank", "game", "profile"]),
+          title: z.string().trim().min(1).max(100),
+        })
+        .parse(body);
+      const project = createProject(input.template, input.title);
+      return Response.json(await save(user, project, -1));
+    }
+    if (action === "save") {
+      const input = projectInput.parse(body.project),
+        expected = z.number().int().min(0).parse(body.expectedRevision),
+        current = await get(user, input.id);
+      for (const [path, file] of Object.entries(input.files))
+        if (file.kind === "text" && file.storagePath) {
+          if (!file.storagePath.startsWith(`${user.id}/${input.id}/`))
+            throw new Error("텍스트 업로드 경로가 올바르지 않습니다.");
+          const { data, error } = await admin()
+            .storage.from("editor-files")
+            .download(file.storagePath);
+          if (
+            error ||
+            !data ||
+            data.size !== file.size ||
+            data.size > LIMITS.upload
+          )
+            throw new Error(`${path}: 업로드 텍스트 검증 실패`);
+          file.content = new TextDecoder("utf-8", { fatal: true }).decode(
+            await data.arrayBuffer(),
+          );
+        }
+      const project: Project = {
+        ...current,
+        title: input.title,
+        files: input.files,
+        deletedAt: current.deletedAt,
+      };
+      // Chat and deployment records are server-owned; client snapshots cannot forge approval results.
+      await save(user, project, expected, true, false);
+      return Response.json(await get(user, project.id));
+    }
+    if (action === "rename-project") {
+      const input = z
+        .object({ projectId: uuid, title: z.string().trim().min(1).max(100) })
+        .parse(body);
+      const project = await get(user, input.projectId);
+      project.title = input.title;
+      return Response.json(await save(user, project, project.revision, false));
+    }
+    if (action === "delete") {
+      const project = await get(user, uuid.parse(body.projectId));
+      project.deletedAt = new Date().toISOString();
+      await save(user, project, project.revision);
+      return Response.json({ ok: true });
+    }
+    if (action === "duplicate") {
+      const project = await get(user, uuid.parse(body.projectId));
+      const id = crypto.randomUUID(),
+        files = { ...project.files };
+      for (const [path, file] of Object.entries(files))
+        if (file.storagePath) {
+          const to = `${user.id}/${id}/${crypto.randomUUID()}`;
+          const copy = await admin()
+            .storage.from("editor-files")
+            .copy(file.storagePath, to);
+          if (copy.error) throw new Error("파일 복제에 실패했습니다.");
+          files[path] = { ...file, storagePath: to };
+        }
+      return Response.json(
+        await save(
+          user,
+          {
+            ...project,
+            id,
+            title: project.title + " 복사본",
+            loungeId: undefined,
+            files,
+            revision: 0,
+            threads: [
+              {
+                id: crypto.randomUUID(),
+                title: "새 대화",
+                autoApply: false,
+                messages: [],
+              },
+            ],
+            deployments: [],
+          },
+          -1,
+        ),
+      );
+    }
+    if (action === "upload") {
+      const input = z
+        .object({
+          projectId: uuid,
+          path: z.string(),
+          mime: z.string().max(100),
+          size: z.number().int().positive().max(LIMITS.upload),
+        })
+        .parse(body);
+      await get(user, input.projectId);
+      assertPath(input.path);
+      const storagePath = `${user.id}/${input.projectId}/${crypto.randomUUID()}`;
+      const result = await admin()
+        .storage.from("editor-files")
+        .createSignedUploadUrl(storagePath);
+      if (result.error) throw new Error("업로드 주소를 만들지 못했습니다.");
+      return Response.json({ storagePath, token: result.data.token });
+    }
+    if (action === "attachment-upload") {
+      const input = z
+        .object({
+          projectId: uuid,
+          threadId: uuid,
+          mime: z.enum(["image/png", "image/jpeg", "image/webp"]),
+          size: z.number().int().positive().max(LIMITS.upload),
+        })
+        .parse(body);
+      const project = await get(user, input.projectId);
+      if (!project.threads.some((t) => t.id === input.threadId))
+        throw new Error("대화를 찾을 수 없습니다.");
+      const storagePath = `${user.id}/${project.id}/${input.threadId}/${crypto.randomUUID()}`;
+      const result = await admin()
+        .storage.from("editor-attachments")
+        .createSignedUploadUrl(storagePath);
+      if (result.error) throw new Error("첨부 업로드 주소 생성 실패");
+      return Response.json({ storagePath, token: result.data.token });
+    }
+    if (action === "thread") {
+      const project = await get(user, uuid.parse(body.projectId));
+      if (body.threadId) {
+        const thread = project.threads.find(
+          (t) => t.id === uuid.parse(body.threadId),
+        );
+        if (!thread) throw new Error("대화가 없습니다.");
+        thread.autoApply = z.boolean().parse(body.autoApply);
+      } else
+        project.threads.push({
+          id: crypto.randomUUID(),
+          title: "새 대화",
+          autoApply: false,
+          messages: [],
+        });
+      return Response.json(await save(user, project, project.revision, false));
+    }
+    if (action === "chat") {
+      const input = chatInput.parse(body);
+      return chat(user, await get(user, input.projectId), input, request);
+    }
+    if (action === "approve" || action === "reject") {
+      const project = await get(user, uuid.parse(body.projectId));
+      const proposalId = uuid.parse(body.proposalId),
+        proposal = project.threads
+          .flatMap((t) => t.messages)
+          .flatMap((m) => m.proposals)
+          .find((p) => p.id === proposalId);
+      if (!proposal || proposal.status !== "pending")
+        throw new Error("처리할 변경안이 없습니다.");
+      if (action === "reject") {
+        proposal.status = "rejected";
+        return Response.json(
+          await save(user, project, project.revision, false),
+        );
+      }
+      const updated = applyProposal(project, proposal);
+      proposal.status = "applied";
+      await save(user, updated, project.revision);
+      return Response.json(await get(user, project.id));
+    }
+    if (action === "usage") {
+      const { data, error } = await admin()
+        .from("editor_ai_usage_daily")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("date", { ascending: false })
+        .limit(31);
+      if (error) throw new Error("사용량 테이블 준비가 필요합니다.");
+      const today = new Date().toLocaleDateString("en-CA", {
+          timeZone: "Asia/Seoul",
+        }),
+        row = data?.find((r) => r.date === today);
+      return Response.json({
+        costUsd: Number(row?.cost_usd ?? 0),
+        reservedUsd: Number(row?.reserved_usd ?? 0),
+        dailyLimitUsd: positive("EDITOR_AI_DAILY_LIMIT_USD"),
+        monthlyLimitUsd: positive("EDITOR_AI_MONTHLY_LIMIT_USD"),
+        promptTokens: row?.prompt_tokens ?? 0,
+        completionTokens: row?.completion_tokens ?? 0,
+        days: data,
+        monthCostUsd: (data ?? [])
+          .filter((r) => r.date.startsWith(today.slice(0, 7)))
+          .reduce((sum, r) => sum + Number(r.cost_usd), 0),
+      });
+    }
+    if (action === "deploy") {
+      const project = await get(user, uuid.parse(body.projectId)),
+        form = deployForm.parse(body.form);
+      try {
+        const result = await deploy(user, project, form);
+        const latest = await get(user, project.id);
+        latest.loungeId = result.loungeId;
+        latest.deployments.push(result.deployment);
+        return Response.json(await save(user, latest, latest.revision, false));
+      } catch (error) {
+        const latest = await get(user, project.id);
+        latest.deployments.push({
+          id: crypto.randomUUID(),
+          createdAt: new Date().toISOString(),
+          status: "error",
+          sha256: "",
+          policyVersion: "editor-static-v1",
+          error: error instanceof Error ? error.message : "배포 실패",
+        });
+        await save(user, latest, latest.revision, false);
+        throw error;
+      }
+    }
+    if (action === "unlink") {
+      const project = await get(user, uuid.parse(body.projectId));
+      project.loungeId = undefined;
+      return Response.json(await save(user, project, project.revision, false));
+    }
+    if (action === "image") {
+      const input = z
+        .object({ projectId: uuid, prompt: z.string().trim().min(1).max(3000) })
+        .parse(body);
+      if (!appConfig().image || !positive("EDITOR_AI_IMAGE_OUTPUT_RESERVE_USD"))
+        throw new Error("이미지 모델과 출력 예산 검증 후 활성화해주세요.");
+      const maxTurn = positive("EDITOR_AI_MAX_TURN_USD");
+      if (positive("EDITOR_AI_IMAGE_OUTPUT_RESERVE_USD") > maxTurn)
+        throw new Error("이미지 출력 예산이 요청당 한도를 초과했습니다.");
+      const project = await get(user, input.projectId),
+        reservation = await reserve(user, maxTurn);
+      let cost = maxTurn,
+        promptTokens = 0,
+        completionTokens = 0;
+      try {
+        const result = await generateImageFile(
+          user,
+          project.id,
+          input.prompt,
+          request.signal,
+        );
+        cost = result.cost;
+        promptTokens = result.promptTokens;
+        completionTokens = result.completionTokens;
+        const latest = await get(user, project.id);
+        latest.files[result.path] = result.file;
+        await save(user, latest, latest.revision);
+        return Response.json(await get(user, project.id));
+      } finally {
+        await settle(user, reservation, cost, promptTokens, completionTokens);
+      }
+    }
+    throw new Error("지원하지 않는 요청입니다.");
+  } catch (error) {
+    if (process.env.SENTRY_DSN && telemetry) {
+      const context = telemetry;
+      Sentry.withScope((scope) => {
+        scope.setUser({ id: context.userId });
+        scope.setTags({
+          action: context.action,
+          project_id: context.projectId ?? "unknown",
+          thread_id: context.threadId ?? "unknown",
+        });
+        Sentry.captureException(new Error("Editor operation failed"));
+      });
+    }
+    const message =
+      error instanceof z.ZodError
+        ? "요청 값이 올바르지 않습니다."
+        : error instanceof Error
+          ? error.message
+          : "요청 처리 실패";
+    const status = /로그인|세션/.test(message)
+      ? 401
+      : /권한|출처|계정/.test(message)
+        ? 403
+        : /설정|준비|활성화/.test(message)
+          ? 503
+          : 400;
+    return Response.json(
+      { error: message },
+      { status, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+}

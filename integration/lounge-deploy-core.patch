@@ -1,0 +1,59 @@
+--- a/src/app/api/projects/deploy/route.ts
++++ b/src/app/api/projects/deploy/route.ts
+@@ -1,3 +1,5 @@
++import type { EditorDeployForm } from "@/lib/editor-integration/contract";
++import { isAllowedImageFile, imageExtension, MAX_IMAGE_UPLOAD_BYTES } from "@/lib/security";
+ import { NextRequest, NextResponse } from "next/server";
+ import JSZip from "jszip";
+ import { marked } from "marked";
+@@ -267,10 +269,12 @@
+   requestedProjectId: string,
+   file: File,
+   authenticatedUserId?: string,
++  trustedEditor?: { userId: string; form: EditorDeployForm; thumbnail?: File },
+ ) {
+   try {
+-    const supabase = await createClient();
+-    const { data: { user } } = await supabase.auth.getUser();
++    // Only the HMAC internal module may supply trustedEditor. Public POST never does.
++    const supabase = trustedEditor ? createAdminClient() : await createClient();
++    const { data: { user } } = trustedEditor ? { data: { user: { id: trustedEditor.userId } } } : await supabase.auth.getUser();
+     if (!user) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+     if (authenticatedUserId && user.id !== authenticatedUserId) {
+       return NextResponse.json({ error: "로그인 상태가 변경되었습니다. 다시 시도해 주세요." }, { status: 401 });
+@@ -302,7 +306,7 @@
+       .single();
+ 
+     const isOwner = project.user_id === user.id;
+-    const scope = await getManagementScope();
++    const scope = trustedEditor ? null : await getManagementScope();
+     const canEditAsStaff = Boolean(
+       scope && await canEditAssignedStudentProject(adminSupabase, scope, project.user_id),
+     );
+@@ -534,7 +538,17 @@
+ 
+     const deployVersion = Date.now();
+     const deployUrl = `/play/${projectId}?v=${deployVersion}`;
++    let editorThumbnailUrl: string | undefined;
++    if (trustedEditor?.thumbnail) {
++      const thumbnail=trustedEditor.thumbnail;
++      if (!isAllowedImageFile(thumbnail) || thumbnail.size>MAX_IMAGE_UPLOAD_BYTES) return NextResponse.json({error:"썸네일 형식/용량 오류"},{status:400});
++      const path=`${user.id}/${projectId}-editor-${crypto.randomUUID()}.${imageExtension(thumbnail)}`;
++      const uploaded=await adminSupabase.storage.from("thumbnails").upload(path,thumbnail,{contentType:thumbnail.type});
++      if(uploaded.error)throw uploaded.error;
++      editorThumbnailUrl=adminSupabase.storage.from("thumbnails").getPublicUrl(path).data.publicUrl;
++    }
+     const desiredMetadata = {
++      ...(trustedEditor ? {title:trustedEditor.form.title,description:trustedEditor.form.description,category:trustedEditor.form.category,slug:trustedEditor.form.slug,is_published:trustedEditor.form.isPublished,is_listed:trustedEditor.form.isListed,...(editorThumbnailUrl?{thumbnail_url:editorThumbnailUrl}:{})} : {}),
+       storage_path: projectId,
+       external_url: deployUrl,
+       file_updated_at: new Date().toISOString(),
+@@ -623,7 +637,7 @@
+     }
+ 
+     const projectProfile = Array.isArray(project.profiles) ? project.profiles[0] : project.profiles;
+-    if (projectProfile?.username) invalidatePublicProjectDetail(projectProfile.username, [project.slug]);
++    if (projectProfile?.username) invalidatePublicProjectDetail(projectProfile.username, [project.slug, ...(trustedEditor ? [trustedEditor.form.slug] : [])]);
+ 
+     // 배포 이력 기록 (실패해도 배포 자체는 성공 처리)
+     const { error: logError } = await adminSupabase
