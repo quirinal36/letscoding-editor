@@ -140,13 +140,7 @@ export async function get(user: SessionUser, id: string): Promise<Project> {
     deployments: row.snapshot.deployments ?? [],
   };
 }
-export async function save(
-  user: SessionUser,
-  project: Project,
-  expectedRevision: number,
-  advance = true,
-  metadata = true,
-): Promise<Project> {
+export async function prepareFiles(user: SessionUser, project: Project) {
   validateFiles(project.files);
   const db = admin();
   const files = [];
@@ -167,6 +161,17 @@ export async function save(
       mime: f.mime,
     });
   }
+  return files;
+}
+export async function save(
+  user: SessionUser,
+  project: Project,
+  expectedRevision: number,
+  advance = true,
+  metadata = true,
+): Promise<Project> {
+  const db = admin();
+  const files = await prepareFiles(user, project);
   const { data, error } = await db.rpc("editor_save_project", {
     p_owner: user.id,
     p_project: { ...project, files: undefined },

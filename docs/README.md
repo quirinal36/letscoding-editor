@@ -19,3 +19,5 @@
    - [인터랙티브 그래프](../graphify-out/graph.html), [그래프 JSON](../graphify-out/graph.json), [추출 무결성 진단](../graphify-out/graph-health.json)
 
 10. [실제 학생 계정·AI·라운지 운영 검증](./07-live-verification.md)
+11. [학생 개인 GitHub 연동](./08-github-integration.md)
+   - GitHub App 설정, 가져오기·커밋·최신 내용 가져오기, 계정 격리·충돌 처리와 남은 실제 인수

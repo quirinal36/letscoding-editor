@@ -1352,3 +1352,14 @@ pre {
   max-height: 130px;
   max-width: 100%;
 }
+
+.github-button { min-height: 36px; border: 1px solid var(--border); border-radius: 6px; padding: 0 12px; }
+.github-panel { display: grid; gap: 12px; }
+.github-panel p { margin: 0; }
+.github-panel a { text-decoration: underline; }
+.github-panel input, .github-panel select { width: 100%; min-height: 40px; }
+.github-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.github-actions button, .github-panel > button { min-height: 40px; border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; }
+.github-changes { max-height: 220px; overflow: auto; margin: 0; padding: 0; list-style: none; }
+.github-changes li { display: flex; gap: 12px; padding: 6px 0; }
+.github-changes code { overflow-wrap: anywhere; }

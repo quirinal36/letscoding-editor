@@ -18,6 +18,7 @@ test("PostgreSQL migration: owner RLS, file/metadata CAS, versions and atomic bu
     create table public.projects(id uuid primary key,user_id uuid,title text,description text,category text,slug text unique,thumbnail_url text,is_published boolean,is_listed boolean,play_price numeric,ranking_score_mode text);`);
     await db.exec(await readFile("integration/editor-schema.sql", "utf8"));
     await db.exec(await readFile("integration/lounge-integration.sql", "utf8"));
+    await db.exec(await readFile("integration/github-schema.sql", "utf8"));
     assert.equal(
       (
         await db.query(
@@ -109,6 +110,86 @@ test("PostgreSQL migration: owner RLS, file/metadata CAS, versions and atomic bu
       1,
     );
     await db.exec("reset role");
+    // Git baseline and files update atomically, with independent link-generation CAS.
+    const gitSync = (
+      who: string,
+      revision: number,
+      previous: string | null,
+      link: object | null,
+      write = false,
+    ) =>
+      db.query(
+        "select editor.editor_github_sync($1,$2::jsonb,$3::jsonb,$4,$5,$6::jsonb,$7)",
+        [
+          who,
+          JSON.stringify(project),
+          JSON.stringify(files),
+          revision,
+          previous,
+          link ? JSON.stringify(link) : null,
+          write,
+        ],
+      );
+    const generation = async () =>
+      (
+        await db.query<{ version: string }>(
+          "select version from editor.editor_github_links where project_id=$1",
+          [project.id],
+        )
+      ).rows[0].version;
+    await gitSync(owner, 1, null, { baseSha: "first" });
+    const firstGeneration = await generation();
+    await assert.rejects(
+      () => gitSync(other, 1, firstGeneration, { baseSha: "attack" }),
+      /owner denied/,
+    );
+    await assert.rejects(
+      () => gitSync(owner, 0, firstGeneration, { baseSha: "stale" }, true),
+      /revision conflict/,
+    );
+    await assert.rejects(
+      () => gitSync(owner, 1, crypto.randomUUID(), { baseSha: "stale" }, true),
+      /link conflict/,
+    );
+    assert.equal(await generation(), firstGeneration);
+    files[0].text_content += " from GitHub";
+    await gitSync(owner, 1, firstGeneration, { baseSha: "second" }, true);
+    const secondGeneration = await generation();
+    assert.notEqual(secondGeneration, firstGeneration);
+    const gitSaved = (
+      await db.query<{ revision: number; metadata_revision: number }>(
+        "select revision,metadata_revision from editor.editor_projects where id=$1",
+        [project.id],
+      )
+    ).rows[0];
+    assert.equal(gitSaved.revision, 2);
+    assert.equal(gitSaved.metadata_revision, 1);
+    await db.exec(
+      `set role authenticated;set "request.jwt.claim.sub"='${other}'`,
+    );
+    assert.equal(
+      (await db.query("select * from editor.editor_github_links")).rows.length,
+      0,
+    );
+    await assert.rejects(
+      () => gitSync(owner, 2, secondGeneration, null),
+      /permission denied/,
+    );
+    await db.exec(`set "request.jwt.claim.sub"='${owner}'`);
+    assert.equal(
+      (await db.query("select * from editor.editor_github_links")).rows.length,
+      1,
+    );
+    await assert.rejects(
+      () => db.query("delete from editor.editor_github_links"),
+      /permission denied/,
+    );
+    await db.exec("reset role");
+    await gitSync(owner, 2, secondGeneration, null);
+    assert.equal(
+      (await db.query("select * from editor.editor_github_links")).rows.length,
+      0,
+    );
     const reservation = crypto.randomUUID();
     await db.query("select editor.editor_reserve_usage($1,$2,1,2,3)", [
       owner,

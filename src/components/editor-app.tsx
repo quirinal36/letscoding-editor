@@ -46,6 +46,7 @@ import {
   PanelLeftClose,
   Palette,
 } from "lucide-react";
+import { GitHubPanel } from "./github-panel";
 import { Dialog } from "./dialog";
 import { Preview, type ConsoleEntry } from "./preview";
 import {
@@ -92,6 +93,7 @@ type Modal =
   | "delete"
   | "quick-open"
   | "commands"
+  | "github"
   | "deploy"
   | "usage"
   | null;
@@ -323,6 +325,13 @@ export function EditorApp({ config }: { config: AppConfig }) {
         fail(e);
       } finally {
         setReady(true);
+        const githubResult = new URLSearchParams(location.search).get("github");
+        if (githubResult) {
+          setModal("github");
+          if (githubResult === "error")
+            setError("GitHub 연결을 완료하지 못했습니다. 다시 연결해주세요.");
+          history.replaceState(null, "", location.pathname);
+        }
       }
     };
     void init();
@@ -1334,6 +1343,13 @@ export function EditorApp({ config }: { config: AppConfig }) {
           {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
         </button>
         <button
+          className="github-button"
+          disabled={busy}
+          onClick={() => setModal("github")}
+        >
+          GitHub
+        </button>
+        <button
           className="deploy-button"
           onClick={openDeploy}
           disabled={!project || busy}
@@ -2233,6 +2249,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
               delete: "삭제 확인",
               "quick-open": "파일 빠르게 열기",
               commands: "명령 팔레트",
+              github: "GitHub 연동",
               deploy: "작품 배포",
               usage: "AI 사용량",
             }[modal]
@@ -2425,6 +2442,20 @@ export function EditorApp({ config }: { config: AppConfig }) {
                       ))}
               </div>
             </>
+          )}
+          {modal === "github" && (
+            <GitHubPanel
+              demo={config.demo}
+              project={project}
+              beforeSync={async () => {
+                if (dirty.current) await flush();
+                return current.current?.revision ?? 0;
+              }}
+              onProject={async (next) => {
+                setProjects(await listProjects(config.demo));
+                await openProject(next);
+              }}
+            />
           )}
           {modal === "deploy" && (
             <form onSubmit={deploySubmit}>

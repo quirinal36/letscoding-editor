@@ -154,3 +154,24 @@ export async function uploadAttachments(
     }),
   );
 }
+
+export async function githubApi(
+  action: string,
+  payload: Record<string, unknown> = {},
+) {
+  const session = await browserSupabase().auth.getSession();
+  const response = await fetch("/api/github", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.data.session?.access_token ?? ""}`,
+    },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const result = await response
+    .json()
+    .catch(() => ({ error: "GitHub 응답을 읽지 못했습니다." }));
+  if (!response.ok)
+    throw new Error(result.error ?? "GitHub 연결에 실패했습니다.");
+  return result;
+}

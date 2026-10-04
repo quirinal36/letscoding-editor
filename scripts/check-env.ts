@@ -16,6 +16,12 @@ const groups = {
     "EDITOR_AI_MAX_TURN_USD",
   ],
   "라운지 배포": ["LOUNGE_INTERNAL_API_URL", "LOUNGE_INTERNAL_API_SECRET"],
+  "GitHub 연결": [
+    "GITHUB_APP_SLUG",
+    "GITHUB_APP_CLIENT_ID",
+    "GITHUB_APP_CLIENT_SECRET",
+    "GITHUB_COOKIE_KEY",
+  ],
   "오류 수집": ["NEXT_PUBLIC_SENTRY_DSN", "SENTRY_DSN"],
   "정리 작업": ["CRON_SECRET"],
 };
