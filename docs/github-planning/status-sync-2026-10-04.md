@@ -71,3 +71,9 @@
 | [yudanah/letscoding_lounge#216](https://github.com/yudanah/letscoding_lounge/issues/216) | 진행 / 남은 조건 있음 | prepare/upload/complete·lease/receipt·멱등성·생성/갱신 코드 검토본 및 RPC를 준비했다. 로컬 SQL 첫 생성 idempotency 검사 통과. | 기존 라운지 배포 코어 patch는 미반영. 실제 생성/갱신·캐시·썸네일·공개 옵션·실패 복구 검증이 남는다. |
 | [yudanah/letscoding_lounge#217](https://github.com/yudanah/letscoding_lounge/issues/217) | 진행 / 남은 조건 있음 | 라운지 소유 migration 20261004115026_create_editor_schema_tables.sql을 운영 적용했고 원장 383건 일치·미적용 0건을 확인했다. editor 상태/RLS/RPC/private 버킷을 생성했다. 기존 public.profiles/public.projects를 유지했다. | ZIP 검증기 공유/배포/버전 계약과 실제 라운지 수동 업로드·출처 표시 인수 검증이 남는다. DB 적용만으로 본 이슈 전체 완료가 아니다. |
 | [yudanah/letscoding_lounge#218](https://github.com/yudanah/letscoding_lounge/issues/218) | 진행 / 남은 조건 있음 | 활동 역할/권한 차단과 연동 문서·이식용 서버 서비스 코드를 준비했다. | 라운지 서버 반영, 실제 휴원/퇴원 차단 및 양방향 권한 문서 반영 검증이 남는다. |
+
+## 반영 후 읽기 검증
+
+63개 이슈 본문·상태와 마일스톤 7개 설명/열림 상태를 다시 조회해 대조했다. 완료 이슈 8개는 `closed`/`completed`이며 기존 마일스톤 연결을 유지한다. 마일스톤별 실제 완료 수(에픽 포함)는 M0 3/15, M1 3/12, M2 1/8, M3 0/3, M4 0/4, M5 1/7, 라운지 M4 0/5다.
+
+읽기 검증 시 GitHub API의 마일스톤 `closed_issues`/`open_issues` 집계는 이슈 상태와 달리 변경 전 수치를 반환했다. 기존 연결/완료 상태를 재저장해도 같았다. 자동 진행 막대는 확인이 필요하며, 이번 설명과 이 문서의 진행 수치는 개별 이슈 상태를 기준으로 계산했다.
