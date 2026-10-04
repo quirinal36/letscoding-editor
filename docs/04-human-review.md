@@ -1,6 +1,6 @@
 # 구현 후 사람이 준비·검토할 항목
 
-> 2026-10-04 · 사용자 결정: 추천 기반 구성 채택, AI 예산은 개발 이후 결정, 계정은 사용자가 준비하고 `.env.local`을 채움. 현재 코드 검증에는 외부 계정·유료 모델·라이브 DB를 사용하지 않았다.
+> 2026-10-04 · 사용자 결정: 추천 기반 구성 채택, AI 예산은 개발 이후 결정, 계정은 사용자가 준비하고 `.env.local`을 채움. 초기 자동 검사는 외부 계정·유료 모델 없이 수행했고, 이후 운영 DB를 transaction rollback으로 검증했다. 실제 사용자 로그인·유료 모델 호출은 아직 검증하지 않았다.
 
 ## 운영 앱 배포 기록 — 2026-10-04
 
@@ -8,7 +8,7 @@
 - Vercel: 기존 `Nana's projects` 팀(`nanas-projects-c600db2d`)의 별도 `letscoding-editor` 프로젝트. ID: `prj_WusiTvLm08JwFd4Ch2Bb9Ma11p6g`.
 - [프로젝트 관리](https://vercel.com/nanas-projects-c600db2d/letscoding-editor), [운영 앱](https://editor.letscoding.kr). GitHub `quirinal36/letscoding-editor`의 `main`을 연결했다. 구현 커밋은 `96a1ffc`이며 Next.js, Node 24.x, `npm run build`를 사용한다.
 - Cloudflare: `letscoding.kr` zone에 `editor` CNAME → `e2bb543fd90282bf.vercel-dns-016.com`, 프록시 끔(DNS only), TTL 자동. Vercel이 안내한 프로젝트 대상값으로 설정했으며 기존 레코드는 변경하지 않았다.
-- Production에 입력된 필수 설정을 등록했다. `NEXT_PUBLIC_APP_URL=https://editor.letscoding.kr`, `EDITOR_DEMO_MODE=false`, AI·이미지·작품 배포 활성화 플래그는 모두 `false`. Preview/Development에는 운영 비밀값을 복사하지 않았다.
+- Production에 입력된 필수 설정을 등록했다. `NEXT_PUBLIC_APP_URL=https://editor.letscoding.kr`, `EDITOR_DEMO_MODE=false`, 최초 배포 당시 AI·이미지·작품 배포 활성화 플래그는 모두 `false`였다. 이후 사용자 지시로 Production `EDITOR_AI_ENABLED=true`, `EDITOR_AI_MAX_TURN_USD=10`으로 변경·재배포했고 `/api/config`의 AI 활성화를 확인했다. 이미지·작품 배포는 계속 `false`다. Preview/Development에는 운영 비밀값을 복사하지 않았다.
 - 배포 전 `npm run check`(11개 테스트), `npm run build`, `npm run test:e2e`(5개 테스트)가 통과했다. E2E는 실행 중이던 로그인용 개발 서버를 종료하고 별도 데모 설정으로 실행한 뒤 원래 개발 서버를 복구했다.
 - 운영 도메인은 유효한 HTTPS로 HTTP 200과 `렛츠코딩 에디터` 제목을 확인했다. 이는 앱/도메인 확인이며 로그인·프로젝트 저장의 통합 검증 완료를 뜻하지 않는다.
 
@@ -17,7 +17,7 @@
 1. **2026-10-04 적용 완료:** 사용자 승인으로 라운지 원본 `20261004115026_create_editor_schema_tables.sql`을 운영 DB에 적용했다. `editor` 테이블 10개(RLS 모두 켬), 서버 RPC 5개, 비공개 파일/첨부 버킷 2개를 생성했고 Aside CLI로 Data API Exposed schemas에 `editor`만 추가했다. 라운지 계정·작품은 기존 `public.profiles`, `public.projects`를 유지한다. 로컬/운영 원장은 383건 일치, 미적용 0건이다. 자세한 원본/검증 기록은 [라운지 적용 문서](https://github.com/yudanah/letscoding_lounge/blob/master/docs/2026-10-04-editor-migration.md)를 참조한다. 실제 계정 로그인·signed upload를 포함한 브라우저 인수 검증은 남는다.
 2. 2026-10-04 사용자 승인으로 Aside CLI에서 Supabase Auth redirect 허용 목록에 `https://editor.letscoding.kr/auth/callback`을 추가했다. `http://localhost:3100/auth/callback`, `http://127.0.0.1:3100/auth/callback`은 이미 등록되어 있었다. 기존 Site URL(`https://lounge.letscoding.kr`)과 다른 redirect 설정은 유지했다. 로그인 링크 발송과 실제 테스트 계정 로그인은 아직 하지 않았다.
 3. staging 환경을 확정하고 Preview/Development의 환경변수를 별도로 연결한다.
-4. AI 요청당 예산 및 이미지 입력·출력 예산, 모델/공급자 호환성 검증 뒤 각 기능을 활성화한다. 라운지 내부 배포 API도 반영·검증 전에는 활성화하지 않는다.
+4. AI 요청당 최대 10 USD, 일/월 예산과 모델 설정 및 AI 활성화는 Production에 반영했다. 실제 모델/공급자 호환성과 청구를 검증하고, 이미지 입력·출력 예약 비용을 결정한다. 라운지 내부 배포 API도 반영·검증 전에는 활성화하지 않는다.
 5. Sentry와 정리 cron은 계정·보존 정책 검토 후 연결한다.
 
 ## 지금 할 수 있는 검토
@@ -56,7 +56,7 @@
 
 ## 출시 전에 남는 실제 검증
 
-로그인과 두 계정 격리, Postgres/Storage 실제 계약, 모델 4종 및 첫 토큰 시간, 실제 과금·예산 초과, 첫 배포/재배포·썸네일·비공개 작품 열기·Play 오리진, 배포 응답 유실/삭제 경합, 정리 cron, Sentry, 실제 학원 PC 성능, Safari/Edge, 정책·동의와 파일럿은 계정과 사람이 필요한 작업이다. GitHub 마일스톤과 이슈를 일괄 완료 처리하지 않았다.
+로그인과 두 계정 격리, Postgres/Storage 실제 계약, 모델 4종 및 첫 토큰 시간, 실제 과금·예산 초과, 첫 배포/재배포·썸네일·비공개 작품 열기·Play 오리진, 배포 응답 유실/삭제 경합, 정리 cron, Sentry, 실제 학원 PC 성능, Safari/Edge, 정책·동의와 파일럿은 계정과 사람이 필요한 작업이다. GitHub는 [이슈별 검증 기록](./github-planning/status-sync-2026-10-04.md)에 따라 완료 8개와 잔여 조건을 구분했다. 마일스톤 7개는 열린 상태다.
 
 ## 검토할 구현 선택
 

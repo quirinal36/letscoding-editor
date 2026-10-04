@@ -1,28 +1,28 @@
 # M0–M5 코드 구현 결과
 
-> 2026-10-04 · 외부 리소스 없이 개발 가능한 코드와 로컬 검증을 진행했다. GitHub 이슈/마일스톤은 서비스 인수 검증 전까지 완료 처리하지 않는다.
+> 2026-10-04 · 외부 리소스 없이 개발 가능한 코드와 로컬 검증을 진행했다. 이슈별 완료 기준과 검증 범위를 대조해 GitHub 상태를 동기화했다. [이슈별 기록](./github-planning/status-sync-2026-10-04.md)을 참조한다.
 
 ## 단계별 결과
 
 | 단계 | 작성한 코드 | 검증 상태 | 사람·계정이 필요한 다음 단계 |
 | --- | --- | --- | --- |
-| M0 기반 | Next.js 16.3.8/React 19, Monaco 로컬 로더, 3열 resize 셸, 테마/접기, PKCE 로그인, 사용자 역할, 공유 DB/RLS/service RPC, 환경 활성화 게이트 | 타입·린트·빌드, 로컬 셸·키보드·테마, PGlite migration/RLS | Vercel/DNS, staging, Auth callback·계정 |
+| M0 기반 | Next.js 16.3.8/React 19, Monaco 로컬 로더, 3열 resize 셸, 테마/접기, PKCE 로그인, 사용자 역할, 공유 DB/RLS/service RPC, 환경 활성화 게이트 | 타입·린트·빌드, 로컬 셸·키보드·테마, PGlite migration/RLS | Vercel/DNS·Auth callback·운영 DB 적용 완료; staging·실제 계정 로그인은 남음 |
 | M1 편집·실행 | VFS CRUD·폴더 이동·검색·업로드·ZIP 가져오기, 탭, Monaco/언어 worker, 디바운스 저장·CAS·다중 탭 경고, 큰 텍스트 Storage, 이미지/SVG·Markdown, 격리 미리보기/콘솔/폭/새 창 | 파일 경로·용량·ZIP·실제 해제 한도, 로컬 저장·복원, 미리보기 실행·격리 | Supabase Storage·서버 저장, 학원 PC 성능·브라우저 호환 |
 | M2 AI 승인 | NDJSON 스트림·중단·스레드·선택 코드, 읽기/검색/쓰기/생성/이름변경/삭제/콘솔 도구, 한 턴 한 변경안, diff·승인/거절·자동 적용, 오래된 제안 차단·원본 버전 | 데모 승인·중단·복원, 파일 원본 불변·stale 거절, SQL 버전/CAS | 실제 모델의 tool/strict/ZDR·첫 토큰·중단 과금 |
-| M3 멀티모달·비용 | 이미지 3장 서명 업로드·소유권/형식 검증, 비전 입력, generate_image 도구와 직접 생성, 모델 허용 목록·가격, 일/최근 7일/31일 사용량, 일/월 원자적 예약·정산 | 예산 미설정 게이트, Postgres 동시 예약·한도·중복 정산 | 개발 후 예산·이미지 비용·모델 4종 선정·실과금 대사 |
-| M4 라운지 배포 | 정적 ZIP·SHA·정책 검증, 배포 form/썸네일·갱신·연결 해제·이력, HMAC prepare/upload/complete 클라이언트, nonce/소유권/기한/receipt 어댑터와 라운지 코어 patch | ZIP 3템플릿 roundtrip, HMAC 변조·시각·재사용·권한, SQL 첫 생성 idempotency | 라운지 저장소 반영·공유 migration·Play URL·lease/rollback/캐시/비공개 작품 |
+| M3 멀티모달·비용 | 이미지 3장 서명 업로드·소유권/형식 검증, 비전 입력, generate_image 도구와 직접 생성, 모델 허용 목록·가격, 일/최근 7일/31일 사용량, 일/월 원자적 예약·정산 | 예산 미설정 게이트, Postgres 동시 예약·한도·중복 정산 | 모델·일/월/턴 예산 등록 및 AI 활성화 완료; 이미지 비용·모델 실제 호출·청구 대사 남음 |
+| M4 라운지 배포 | 정적 ZIP·SHA·정책 검증, 배포 form/썸네일·갱신·연결 해제·이력, HMAC prepare/upload/complete 클라이언트, nonce/소유권/기한/receipt 어댑터와 라운지 코어 patch | ZIP 3템플릿 roundtrip, HMAC 변조·시각·재사용·권한, SQL 첫 생성 idempotency | 공유 migration 운영 적용 완료; 라운지 앱 코드 반영·Play URL·lease/rollback/캐시/비공개 작품 |
 | M5 안정화 | Playwright·axe, CI, Sentry 민감값 제거, ID 구조화 로그, 정리 endpoint/RPC, 명령 팔레트·포맷·기기 폭·Markdown, 교사 안내·검토 문서 | 아래 자동 검사 결과 | Sentry/cron 연결, 실제 성능·보조기술·학생 5명/1주, 정책·동의 |
 
 ## 실행과 검사
 
-최종 결과: 타입·린트 통과, 단위/계약/Postgres 테스트 **11개 통과**, Playwright **5개 통과**, 운영 빌드 통과.
+최종 결과: 타입·린트 통과, 단위/계약/Postgres 테스트 **12개 통과**, Playwright **5개 통과**, 운영 빌드 통과.
 
-- `npm run check`: TypeScript, ESLint, 단위/계약/PostgreSQL 검사. 테스트용 PGlite에서 두 SQL을 실제로 실행하여 소유권 RLS, 파일/metadata 충돌, 파일 버전, 사용량 예약/한도/정산, 첫 라운지 작품 생성 idempotency를 확인한다. Supabase 운영 DB에 연결하지 않는다.
+- `npm run check`: TypeScript, ESLint, 단위/계약/PostgreSQL 검사. 테스트용 PGlite에서 두 SQL을 실제로 실행하여 소유권 RLS, 파일/metadata 충돌, 파일 버전, 사용량 예약/한도/정산, 첫 라운지 작품 생성 idempotency를 확인한다. 이 자동 검사는 Supabase 운영 DB에 연결하지 않는다. 별도 운영 transaction에서 저장/CAS/버전/예산/RLS/RPC 권한을 검증하고 시험 데이터를 모두 rollback했다.
 - `npm run build`: webpack 운영 빌드. 현재 실행 환경의 Turbopack build worker 포트 제한을 피해 명시적으로 webpack을 선택했다.
 - `npm run test:e2e`: Chromium 개발 데모에서 편집→승인→실행→ZIP→복원, 키보드·테마·axe, 두 탭·악성 HTML 격리, 프로젝트 생성/복제/삭제·금지 업로드, AI 응답 중단/복원을 검사한다. axe 검사는 Monaco 내부를 제외한 앱 셸의 WCAG A/AA 태그 범위다.
-- `npm run check:env`: 설정 존재 여부만 출력한다. 현재 실제 저장·AI·이미지·배포는 비활성이다.
+- `npm run check:env`: 설정 존재 여부만 출력한다. Production은 cloud=true, ai=true, image=false, deploy=false다. 사용자 지시로 AI 턴 최대 예산은 10 USD다.
 
-Supabase 실제 API, RLS의 배포 환경, OpenRouter 응답·청구, 라운지 서버, Sentry ingest를 mock/로컬 검증으로 대체 완료했다고 주장하지 않는다. 설치된 Monaco 로더와 언어 자산은 `predev/prebuild`가 `public/monaco`로 복사하며 Git에 넣지 않는다. 버전은 lockfile로 고정한다.
+운영 DB 테이블 10개/RLS 10개/RPC 5개와 private 버킷 2개, Data API editor 노출을 완료했다. 서버 REST 200·익명 401을 확인했다. 실제 로그인·두 기기 재열기·Storage 업로드, OpenRouter 응답·청구, 라운지 서버, Sentry ingest 인수는 남는다. 설치된 Monaco 로더와 언어 자산은 `predev/prebuild`가 `public/monaco`로 복사하며 Git에 넣지 않는다. 버전은 lockfile로 고정한다.
 
 ## 구현 구조
 

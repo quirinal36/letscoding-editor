@@ -87,3 +87,7 @@
 | F-005 | [quirinal36/letscoding-editor#58](https://github.com/quirinal36/letscoding-editor/issues/58) | F-005 — React·TS 번들링 및 WebContainers 라이선스 검토 |
 
 검증: 등록 63건의 본문·라벨·마일스톤·열림 상태와 마일스톤 7개를 GitHub에서 다시 읽어 대조했다. [JSON 대응표](github-registration.json)에 실제 번호·URL을 저장했다.
+
+## 구현 상태 동기화 — 2026-10-04
+
+[이슈별 구현·검증·잔여 조건](./status-sync-2026-10-04.md)을 GitHub 본문과 에픽 자식 체크리스트에 반영했다. 63개 중 에디터 개별 이슈 8개를 완료 처리하고 55개를 유지한다. 마일스톤 7개는 실제 계정·유료 모델·라운지 통합 및 출시 검증이 남아 열린 상태다.
