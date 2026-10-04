@@ -18,6 +18,22 @@ test("PostgreSQL migration: owner RLS, file/metadata CAS, versions and atomic bu
     create table public.projects(id uuid primary key,user_id uuid,title text,description text,category text,slug text unique,thumbnail_url text,is_published boolean,is_listed boolean,play_price numeric,ranking_score_mode text);`);
     await db.exec(await readFile("integration/editor-schema.sql", "utf8"));
     await db.exec(await readFile("integration/lounge-integration.sql", "utf8"));
+    assert.equal(
+      (
+        await db.query(
+          "select tablename from pg_tables where schemaname='public' and tablename like 'editor_%'",
+        )
+      ).rows.length,
+      0,
+    );
+    assert.equal(
+      (
+        await db.query<{ allowed: boolean }>(
+          "select has_schema_privilege('authenticated','editor','CREATE') as allowed",
+        )
+      ).rows[0].allowed,
+      false,
+    );
     const owner = crypto.randomUUID(),
       other = crypto.randomUUID(),
       project = createProject("game", "test");
@@ -42,7 +58,7 @@ test("PostgreSQL migration: owner RLS, file/metadata CAS, versions and atomic bu
       p = project,
     ) =>
       db.query<{ result: { revision: number; metadataRevision: number } }>(
-        "select editor_save_project($1,$2::jsonb,$3::jsonb,$4,$5,$6,$7) as result",
+        "select editor.editor_save_project($1,$2::jsonb,$3::jsonb,$4,$5,$6,$7) as result",
         [
           owner,
           JSON.stringify(p),
@@ -65,58 +81,63 @@ test("PostgreSQL migration: owner RLS, file/metadata CAS, versions and atomic bu
     await assert.rejects(() => save(0, true, false, 0), /revision/);
     await assert.rejects(() => save(1, false, true, 0), /metadata revision/);
     assert.equal(
-      (await db.query("select * from editor_file_versions")).rows.length,
+      (await db.query("select * from editor.editor_file_versions")).rows.length,
       1,
     );
     await db.exec(
       `set role authenticated;set "request.jwt.claim.sub"='${other}'`,
     );
     assert.equal(
-      (await db.query("select * from editor_projects")).rows.length,
+      (await db.query("select * from editor.editor_projects")).rows.length,
       0,
     );
     await assert.rejects(
-      () => db.query("delete from editor_projects"),
+      () => db.query("delete from editor.editor_projects"),
       /permission/,
     );
     await assert.rejects(
       () =>
-        db.query("select editor_settle_usage($1,$2,0,0,0)", [
+        db.query("select editor.editor_settle_usage($1,$2,0,0,0)", [
           owner,
           crypto.randomUUID(),
         ]),
       /permission/,
     );
-    await db.exec(`reset role;set "request.jwt.claim.sub"='${owner}'`);
+    await db.exec(`set "request.jwt.claim.sub"='${owner}'`);
+    assert.equal(
+      (await db.query("select * from editor.editor_projects")).rows.length,
+      1,
+    );
+    await db.exec("reset role");
     const reservation = crypto.randomUUID();
-    await db.query("select editor_reserve_usage($1,$2,1,2,3)", [
+    await db.query("select editor.editor_reserve_usage($1,$2,1,2,3)", [
       owner,
       reservation,
     ]);
     await assert.rejects(
       () =>
-        db.query("select editor_reserve_usage($1,$2,1,2,3)", [
+        db.query("select editor.editor_reserve_usage($1,$2,1,2,3)", [
           owner,
           crypto.randomUUID(),
         ]),
       /progress/,
     );
-    await db.query("select editor_settle_usage($1,$2,0.4,100,10)", [
+    await db.query("select editor.editor_settle_usage($1,$2,0.4,100,10)", [
       owner,
       reservation,
     ]);
-    await db.query("select editor_settle_usage($1,$2,0.4,100,10)", [
+    await db.query("select editor.editor_settle_usage($1,$2,0.4,100,10)", [
       owner,
       reservation,
     ]);
     const usage = await db.query<{ cost_usd: string; reserved_usd: string }>(
-      "select cost_usd,reserved_usd from editor_ai_usage_daily",
+      "select cost_usd,reserved_usd from editor.editor_ai_usage_daily",
     );
     assert.equal(Number(usage.rows[0].cost_usd), 0.4);
     assert.equal(Number(usage.rows[0].reserved_usd), 0);
     await assert.rejects(
       () =>
-        db.query("select editor_reserve_usage($1,$2,2,2,3)", [
+        db.query("select editor.editor_reserve_usage($1,$2,2,2,3)", [
           owner,
           crypto.randomUUID(),
         ]),
@@ -142,13 +163,13 @@ test("PostgreSQL migration: owner RLS, file/metadata CAS, versions and atomic bu
     const first = await db.query<{
       result: { id: string; project_id: string };
     }>(
-      "select editor_prepare_lounge_upload($1,$2,$3,$4,$5,$6,$7,$8) as result",
+      "select editor.editor_prepare_lounge_upload($1,$2,$3,$4,$5,$6,$7,$8) as result",
       prepare,
     );
     const second = await db.query<{
       result: { id: string; project_id: string };
     }>(
-      "select editor_prepare_lounge_upload($1,$2,$3,$4,$5,$6,$7,$8) as result",
+      "select editor.editor_prepare_lounge_upload($1,$2,$3,$4,$5,$6,$7,$8) as result",
       prepare,
     );
     assert.equal(first.rows[0].result.id, second.rows[0].result.id);

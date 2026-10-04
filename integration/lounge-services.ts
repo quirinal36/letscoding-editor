@@ -19,9 +19,11 @@ export function createLoungeServices(
   db: SupabaseClient,
   deployCore: TrustedDeploy,
 ): LoungeServices {
+  const editorDb = db.schema("editor"),
+    loungeDb = db.schema("public");
   return {
     async claimNonce(nonce, expiresAt) {
-      const { error } = await db
+      const { error } = await editorDb
         .from("editor_lounge_nonces")
         .insert({ nonce, expires_at: expiresAt });
       if (error && error.code !== "23505")
@@ -30,14 +32,14 @@ export function createLoungeServices(
     },
     async authorize(userId, editorProjectId, loungeProjectId) {
       const [profile, editor, work] = await Promise.all([
-        db.from("profiles").select("role").eq("id", userId).maybeSingle(),
-        db
+        loungeDb.from("profiles").select("role").eq("id", userId).maybeSingle(),
+        editorDb
           .from("editor_projects")
           .select("owner_id,deleted_at")
           .eq("id", editorProjectId)
           .maybeSingle(),
         loungeProjectId
-          ? db
+          ? loungeDb
               .from("projects")
               .select("user_id")
               .eq("id", loungeProjectId)
@@ -54,16 +56,19 @@ export function createLoungeServices(
       );
     },
     async prepare(input) {
-      const { data, error } = await db.rpc("editor_prepare_lounge_upload", {
-        p_user: input.userId,
-        p_editor: input.editorProjectId,
-        p_lounge: input.loungeProjectId ?? null,
-        p_form: input.form,
-        p_sha: input.sha256,
-        p_bytes: input.byteSize,
-        p_key: input.idempotencyKey,
-        p_policy: input.policyVersion,
-      });
+      const { data, error } = await editorDb.rpc(
+        "editor_prepare_lounge_upload",
+        {
+          p_user: input.userId,
+          p_editor: input.editorProjectId,
+          p_lounge: input.loungeProjectId ?? null,
+          p_form: input.form,
+          p_sha: input.sha256,
+          p_bytes: input.byteSize,
+          p_key: input.idempotencyKey,
+          p_policy: input.policyVersion,
+        },
+      );
       if (error || !data)
         throw new Error(
           "배포 준비 실패: 작품 주소 충돌 또는 배포 진행 상태를 확인하세요.",
@@ -86,7 +91,7 @@ export function createLoungeServices(
       };
     },
     async complete(input: CompleteInput) {
-      const { data: item, error } = await db
+      const { data: item, error } = await editorDb
         .from("editor_lounge_uploads")
         .select("*")
         .eq("id", input.uploadId)
@@ -101,7 +106,7 @@ export function createLoungeServices(
         Date.parse(item.expires_at) <= Date.now()
       )
         throw new Error("업로드 만료 또는 처리 중");
-      const { data: claimed, error: claimError } = await db
+      const { data: claimed, error: claimError } = await editorDb
         .from("editor_lounge_uploads")
         .update({ status: "processing" })
         .eq("id", item.id)
@@ -121,7 +126,7 @@ export function createLoungeServices(
           throw new Error("ZIP SHA 검증 실패");
         let thumbnail: File | undefined;
         if (item.form.thumbnailPath) {
-          const file = await db
+          const file = await editorDb
             .from("editor_files")
             .select("storage_path,mime,size_bytes")
             .eq("project_id", input.editorProjectId)
@@ -160,7 +165,7 @@ export function createLoungeServices(
           form: item.form,
           thumbnail,
         });
-        const { error: updateError } = await db
+        const { error: updateError } = await editorDb
           .from("editor_lounge_uploads")
           .update({
             status: "completed",
@@ -173,7 +178,7 @@ export function createLoungeServices(
         return receipt;
       } catch (error) {
         // Never repeat an uncertain deploy automatically: existing lease/logs may show a commit.
-        await db
+        await editorDb
           .from("editor_lounge_uploads")
           .update({ status: "needs_review" })
           .eq("id", item.id)

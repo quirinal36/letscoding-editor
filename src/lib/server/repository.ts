@@ -24,6 +24,7 @@ export function admin() {
     key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Supabase 서버 저장 설정이 필요합니다.");
   return createClient(url, key, {
+    db: { schema: "editor" },
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
@@ -41,6 +42,7 @@ export async function authenticate(request: Request): Promise<SessionUser> {
   const { data, error } = await db.auth.getUser(token);
   if (error || !data.user) throw new Error("로그인 세션이 만료되었습니다.");
   const profile = await db
+    .schema("public")
     .from("profiles")
     .select("role")
     .eq("id", data.user.id)
