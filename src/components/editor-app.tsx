@@ -931,11 +931,19 @@ export function EditorApp({ config }: { config: AppConfig }) {
   }
   function openDeploy() {
     if (!project) return;
-    setDeployFields((f) => ({
-      ...f,
-      title: project.title,
-      slug: project.loungeId ? f.slug : `project-${project.id.slice(0, 8)}`,
-    }));
+    const previous = project.deployments
+      .slice()
+      .reverse()
+      .find((d) => d.form)?.form;
+    setDeployFields({
+      title: previous?.title ?? project.title,
+      description: previous?.description ?? "",
+      category: previous?.category ?? "web_game",
+      slug: previous?.slug ?? `project-${project.id.slice(0, 8)}`,
+      isPublished: previous?.isPublished ?? true,
+      isListed: previous?.isListed ?? true,
+      thumbnailPath: previous?.thumbnailPath ?? "",
+    });
     setFormError("");
     setModal("deploy");
   }
@@ -956,6 +964,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
               id: crypto.randomUUID(),
               createdAt: new Date().toISOString(),
               status: "validated" as const,
+              form: { ...deployFields },
               sha256: artifact.sha256,
               policyVersion: artifact.policyVersion,
             },

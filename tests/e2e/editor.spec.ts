@@ -37,12 +37,29 @@ test("template → edit → AI approval → preview → ZIP verification → rel
     .click();
   await expect(preview.locator("#score")).toHaveText("1");
   await page.getByRole("button", { name: "배포하기", exact: true }).click();
+  await page.getByRole("textbox", { name: "설명", exact: true }).fill("비공개 배포 설정 유지");
+  await page.getByLabel("주소 이름", { exact: true }).fill("private-test");
+  await page.getByLabel("공개", { exact: true }).uncheck();
+  await page.getByLabel("목록에 표시", { exact: true }).uncheck();
   await page.getByRole("button", { name: "배포 ZIP 검증" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.getByRole("button", { name: "배포하기" }).click();
   await expect(page.getByText("ZIP 검증 완료", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "닫기", exact: true }).click();
   await page.reload();
+  await expect(page.getByRole("treeitem", { name: "notes.md", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "배포하기", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "설명", exact: true })).toHaveValue(
+    "비공개 배포 설정 유지",
+  );
+  await expect(page.getByLabel("주소 이름", { exact: true })).toHaveValue(
+    "private-test",
+  );
+  await expect(page.getByLabel("공개", { exact: true })).not.toBeChecked();
+  await expect(
+    page.getByLabel("목록에 표시", { exact: true }),
+  ).not.toBeChecked();
+  await page.getByRole("button", { name: "닫기", exact: true }).click();
   await expect(
     page.getByRole("treeitem", { name: "notes.md", exact: true }),
   ).toBeVisible();

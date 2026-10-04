@@ -39,6 +39,15 @@ export type Deployment = {
   policyVersion: string;
   url?: string;
   error?: string;
+  form?: {
+    title: string;
+    description: string;
+    category: string;
+    slug: string;
+    isPublished: boolean;
+    isListed: boolean;
+    thumbnailPath?: string;
+  };
 };
 export type Project = {
   id: string;
