@@ -1,8 +1,10 @@
+> 최신 상태: [운영 검증](../docs/07-live-verification.md), [라운지 구현](https://github.com/yudanah/letscoding_lounge/tree/master/src/lib/editor-integration). 아래 복사·적용 순서는 초기 제안 기록이며 이미 적용한 환경에서는 재실행하지 않는다.
+
 # 라운지 연동 검토본
 
 이 폴더는 에디터 앱에서 실행하지 않는다. 공유 DB 적용 및 라운지 코드 반영 전 검토할 완성된 계약·SQL·어댑터·배포 코어 변경안이다. 계정 연결 검증은 아직 하지 않았다.
 
-**2026-10-04 DB 적용 완료:** SQL 두 파일의 초기 계약을 라운지 소유 `20261004115026_create_editor_schema_tables.sql` 하나로 묶어 운영 DB에 적용했다. Data API의 `editor` 노출도 완료했다. 이 폴더 SQL은 계속 참고용이며 재실행하거나 독립 원장으로 사용하지 않는다. 라운지 서버 어댑터·내부 배포 route·배포 코어 patch는 아직 반영하지 않았다. [원본과 검증 기록](https://github.com/yudanah/letscoding_lounge/blob/master/docs/2026-10-04-editor-migration.md)
+**2026-10-04 DB 적용 완료:** SQL 두 파일의 초기 계약을 라운지 소유 `20261004115026_create_editor_schema_tables.sql` 하나로 묶어 운영 DB에 적용했다. Data API의 `editor` 노출도 완료했다. 이 폴더 SQL은 계속 참고용이며 재실행하거나 독립 원장으로 사용하지 않는다. 라운지 서버 어댑터·내부 배포 route·배포 코어는 이후 `94eeabc1`에 반영했다. 최신 실행 코드는 라운지 저장소가 소유하며 이 폴더는 초기 검토본이다. [원본과 검증 기록](https://github.com/yudanah/letscoding_lounge/blob/master/docs/2026-10-04-editor-migration.md)
 
 2026-10-04 사용자 결정: 에디터 테이블·함수·시퀀스와 내부 배포 상태는 **`editor` 스키마**를 사용한다. 라운지 계정과 작품은 `public.profiles`, `public.projects`, Supabase Auth/Storage는 각각 기존 `auth`/`storage` 스키마를 유지한다. 테이블명은 `editor.editor_projects`처럼 기존 이름을 유지한다.
 

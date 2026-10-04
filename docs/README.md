@@ -17,3 +17,5 @@
 
 9. [코드·문서 관계 분석 보고서](../graphify-out/GRAPH_REPORT.md)
    - [인터랙티브 그래프](../graphify-out/graph.html), [그래프 JSON](../graphify-out/graph.json), [추출 무결성 진단](../graphify-out/graph-health.json)
+
+10. [실제 학생 계정·AI·라운지 운영 검증](./07-live-verification.md)
