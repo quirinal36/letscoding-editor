@@ -1,0 +1,563 @@
+{
+  "backend": "openrouter",
+  "model": "google/gemini-3.1-flash-lite",
+  "job_budget_usd": 0.25,
+  "request_budget_usd": 0.05,
+  "enabled_by": "explicit user reanalysis request",
+  "requests": [
+    {
+      "id": "gen-1791121150-EPvCV1aBVkYdEN6iOxvX",
+      "chunk": 1,
+      "files": [
+        ".github/workflows/check.yml",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "README.md"
+      ],
+      "input_tokens": 2810,
+      "output_tokens": 941,
+      "cost_usd": 0.002114,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121187-d0BEFQ1exZuElw0xCU5m",
+      "chunk": 1,
+      "files": [
+        ".github/workflows/check.yml",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "README.md"
+      ],
+      "input_tokens": 3897,
+      "output_tokens": 1061,
+      "cost_usd": 0.00256575,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121195-i0SEDb3twfAyX7TItN1U",
+      "chunk": 2,
+      "files": [
+        "docs/01-project-plan.md",
+        "docs/02-checklist.md"
+      ],
+      "input_tokens": 11226,
+      "output_tokens": 1214,
+      "cost_usd": 0.0046275,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121199-f0ZBiWoTY5DpUAAp0y9y",
+      "chunk": 3,
+      "files": [
+        "docs/03-owner-preparation.md",
+        "docs/04-human-review.md"
+      ],
+      "input_tokens": 9892,
+      "output_tokens": 1090,
+      "cost_usd": 0.004108,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121202-iwFFfxi4HfiERrXsbMBa",
+      "chunk": 4,
+      "files": [
+        "docs/05-implementation-status.md",
+        "docs/06-teacher-guide.md",
+        "docs/07-live-verification.md",
+        "docs/08-github-integration.md"
+      ],
+      "input_tokens": 13351,
+      "output_tokens": 1266,
+      "cost_usd": 0.00523675,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121211-RSjCyz7jEkIx7LYoJOW9",
+      "chunk": 5,
+      "files": [
+        "docs/README.md",
+        "docs/github-planning/README.md",
+        "docs/github-planning/epics.md"
+      ],
+      "input_tokens": 9673,
+      "output_tokens": 1145,
+      "cost_usd": 0.00413575,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121215-2bheQuzkNfpnmt7OMoGZ",
+      "chunk": 6,
+      "files": [
+        "docs/github-planning/issues.md"
+      ],
+      "input_tokens": 32845,
+      "output_tokens": 726,
+      "cost_usd": 0.00930025,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121221-U8n3iylBENJAuCeJQnYl",
+      "chunk": 7,
+      "files": [
+        "docs/github-planning/milestones.md",
+        "docs/github-planning/registered.md"
+      ],
+      "input_tokens": 8782,
+      "output_tokens": 856,
+      "cost_usd": 0.0034795,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121228-m4dVuRY4oOBuWyF7iBZZ",
+      "chunk": 8,
+      "files": [
+        "docs/github-planning/status-sync-2026-10-04.md"
+      ],
+      "input_tokens": 10487,
+      "output_tokens": 882,
+      "cost_usd": 0.00394475,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121231-ognSmwfYcZ2mw9EySNvt",
+      "chunk": 9,
+      "files": [
+        "docs/github-planning/traceability.md",
+        "integration/README.md"
+      ],
+      "input_tokens": 10236,
+      "output_tokens": 972,
+      "cost_usd": 0.004017,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121333-IRiemyF6cIouSzuZ8Px8",
+      "chunk": 1,
+      "files": [
+        ".github/workflows/check.yml",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "README.md"
+      ],
+      "input_tokens": 4003,
+      "output_tokens": 4011,
+      "cost_usd": 0.00701725,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121344-Pdtq31a9pjnpbA2DxCsb",
+      "chunk": 2,
+      "files": [
+        "docs/01-project-plan.md",
+        "docs/02-checklist.md"
+      ],
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_usd": 0,
+      "finish_reason": "error"
+    },
+    {
+      "id": "gen-1791121461-fgyJxavmgm9Tvz7aIaGy",
+      "chunk": 2,
+      "files": [
+        "docs/01-project-plan.md",
+        "docs/02-checklist.md"
+      ],
+      "input_tokens": 11331,
+      "output_tokens": 2240,
+      "cost_usd": 0.00619275,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121473-o4wRJanNInhyATx6ezED",
+      "chunk": 3,
+      "files": [
+        "docs/03-owner-preparation.md",
+        "docs/04-human-review.md"
+      ],
+      "input_tokens": 9997,
+      "output_tokens": 2131,
+      "cost_usd": 0.00569575,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121484-KZ8xwUNgXSfWAZjtvKMV",
+      "chunk": 4,
+      "files": [
+        "docs/05-implementation-status.md",
+        "docs/06-teacher-guide.md",
+        "docs/07-live-verification.md",
+        "docs/08-github-integration.md"
+      ],
+      "input_tokens": 13457,
+      "output_tokens": 4216,
+      "cost_usd": 0.00968825,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121500-8EwKAHpsReE4uZGSPiRO",
+      "chunk": 5,
+      "files": [
+        "docs/README.md",
+        "docs/github-planning/README.md",
+        "docs/github-planning/epics.md"
+      ],
+      "input_tokens": 9779,
+      "output_tokens": 2041,
+      "cost_usd": 0.00550625,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121511-Cm4I4MS8kExLxIRfOntU",
+      "chunk": 6,
+      "files": [
+        "docs/github-planning/issues.md"
+      ],
+      "input_tokens": 32949,
+      "output_tokens": 1061,
+      "cost_usd": 0.00982875,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121520-henLyo3jqevEMC3tTxfM",
+      "chunk": 7,
+      "files": [
+        "docs/github-planning/milestones.md",
+        "docs/github-planning/registered.md"
+      ],
+      "input_tokens": 8887,
+      "output_tokens": 2300,
+      "cost_usd": 0.00567175,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121532-fFOdrCRH7hfPz2gBERLC",
+      "chunk": 8,
+      "files": [
+        "docs/github-planning/status-sync-2026-10-04.md"
+      ],
+      "input_tokens": 10591,
+      "output_tokens": 1320,
+      "cost_usd": 0.00462775,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "gen-1791121542-ByXUyCdCjkqiDBZLGISR",
+      "chunk": 9,
+      "files": [
+        "docs/github-planning/traceability.md",
+        "integration/README.md"
+      ],
+      "input_tokens": 10341,
+      "output_tokens": 2167,
+      "cost_usd": 0.00583575,
+      "finish_reason": "stop"
+    }
+  ],
+  "input_tokens": 224534,
+  "output_tokens": 31640,
+  "cost_usd": 0.1035935,
+  "reserved_unknown_usd": 0.012415499999999996,
+  "unmetered_request_count": 1,
+  "privacy": {
+    "zdr": true,
+    "data_collection": "deny"
+  },
+  "id_normalization": [
+    {
+      "kind": "source_qualified_id",
+      "old": "github_workflows_check",
+      "new": "_github_workflows_check_github_workflows_check"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "github_workflows_check_ci_pipeline",
+      "new": "_github_workflows_check_github_workflows_check_ci_pipeline"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "github_workflows_check_e2e_testing",
+      "new": "_github_workflows_check_github_workflows_check_e2e_testing"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "github_workflows_check_artifact_handling",
+      "new": "_github_workflows_check_github_workflows_check_artifact_handling"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "github_workflows_check_node_env",
+      "new": "_github_workflows_check_github_workflows_check_node_env"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_vfs_architecture",
+      "new": "docs_01_project_plan_concept_vfs_architecture"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_monaco_editor",
+      "new": "docs_01_project_plan_concept_monaco_editor"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_ai_tooling",
+      "new": "docs_01_project_plan_concept_ai_tooling"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_lounge_deployment",
+      "new": "docs_01_project_plan_concept_lounge_deployment"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_hmac_security",
+      "new": "docs_02_checklist_concept_hmac_security"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_data_privacy",
+      "new": "docs_02_checklist_concept_data_privacy"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_tech_validation",
+      "new": "docs_02_checklist_concept_tech_validation"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_deployment_validation",
+      "new": "docs_02_checklist_concept_deployment_validation"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_vercel_team_config",
+      "new": "docs_03_owner_preparation_concept_vercel_team_config"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_hmac_security",
+      "new": "docs_03_owner_preparation_concept_hmac_security"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_ai_budget_control",
+      "new": "docs_03_owner_preparation_concept_ai_budget_control"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_dns_management",
+      "new": "docs_03_owner_preparation_concept_dns_management"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_deployment_status",
+      "new": "docs_04_human_review_concept_deployment_status"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_supabase_auth_redirect",
+      "new": "docs_04_human_review_concept_supabase_auth_redirect"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_indexeddb_demo",
+      "new": "docs_04_human_review_concept_indexeddb_demo"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_github_app_integration",
+      "new": "docs_04_human_review_concept_github_app_integration"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_rls_security",
+      "new": "docs_05_implementation_status_concept_rls_security"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_lounge_hmac",
+      "new": "docs_05_implementation_status_concept_lounge_hmac"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_ai_budgeting",
+      "new": "docs_05_implementation_status_concept_ai_budgeting"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_monaco_loader",
+      "new": "docs_05_implementation_status_concept_monaco_loader"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_deployment_troubleshooting",
+      "new": "docs_06_teacher_guide_concept_deployment_troubleshooting"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_student_login",
+      "new": "docs_06_teacher_guide_concept_student_login"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_privacy_policy",
+      "new": "docs_06_teacher_guide_concept_privacy_policy"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_session_management",
+      "new": "docs_06_teacher_guide_concept_session_management"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_zdr_validation",
+      "new": "docs_07_live_verification_concept_zdr_validation"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_storage_signed_url",
+      "new": "docs_07_live_verification_concept_storage_signed_url"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_nonce_idempotency",
+      "new": "docs_07_live_verification_concept_nonce_idempotency"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_ai_cost_estimation",
+      "new": "docs_07_live_verification_concept_ai_cost_estimation"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_github_pkce",
+      "new": "docs_08_github_integration_concept_github_pkce"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_github_app_security",
+      "new": "docs_08_github_integration_concept_github_app_security"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_github_sync_logic",
+      "new": "docs_08_github_integration_concept_github_sync_logic"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_github_scope_limits",
+      "new": "docs_08_github_integration_concept_github_scope_limits"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "docs_project_plan",
+      "new": "docs_readme_docs_project_plan"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_mvp_scope",
+      "new": "docs_github_planning_readme_concept_mvp_scope"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_auth_strategy",
+      "new": "docs_github_planning_readme_concept_auth_strategy"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_ai_budget",
+      "new": "docs_github_planning_readme_concept_ai_budget"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_lounge_integration",
+      "new": "docs_github_planning_epics_concept_lounge_integration"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "rationale_open_decisions",
+      "new": "docs_github_planning_readme_rationale_open_decisions"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_auth_rls",
+      "new": "docs_github_planning_issues_concept_auth_rls"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_ai_budget_control",
+      "new": "docs_github_planning_issues_concept_ai_budget_control"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_deployment_zip_policy",
+      "new": "docs_github_planning_issues_concept_deployment_zip_policy"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_lounge_integration",
+      "new": "docs_github_planning_issues_concept_lounge_integration"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_release_gates",
+      "new": "docs_github_planning_milestones_concept_release_gates"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_ai_budget_control",
+      "new": "docs_github_planning_milestones_concept_ai_budget_control"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_lounge_integration",
+      "new": "docs_github_planning_milestones_concept_lounge_integration"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "rationale_pilot_stabilization",
+      "new": "docs_github_planning_milestones_rationale_pilot_stabilization"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_github_issue_tracking",
+      "new": "docs_github_planning_registered_concept_github_issue_tracking"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_lounge_contract_issues",
+      "new": "docs_github_planning_registered_concept_lounge_contract_issues"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_status_sync",
+      "new": "docs_github_planning_registered_concept_status_sync"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "rationale_registration_verification",
+      "new": "docs_github_planning_registered_rationale_registration_verification"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_ai_production_budget",
+      "new": "docs_github_planning_status_sync_2026_10_04_concept_ai_production_budget"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_storage_security",
+      "new": "docs_github_planning_status_sync_2026_10_04_concept_storage_security"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_auth_pkce",
+      "new": "docs_github_planning_status_sync_2026_10_04_concept_auth_pkce"
+    },
+    {
+      "kind": "source_qualified_id",
+      "old": "concept_lounge_migration",
+      "new": "docs_github_planning_status_sync_2026_10_04_concept_lounge_migration"
+    }
+  ]
+}

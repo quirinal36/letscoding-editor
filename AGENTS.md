@@ -5,6 +5,7 @@
 - 공유 DB migration 원본과 적용은 라운지 저장소가 소유한다. 이 저장소의 `integration/` SQL은 미적용 제안이며 독립 migration 원장이 아니다.
 - `.env.local` 값을 출력하거나 커밋하지 않는다. 설정이 없으면 개발 데모를 사용하고 운영 API는 차단한다.
 - 유료 호출은 예산·모델·기능 활성화가 모두 설정되어야 한다. 비밀키를 채운 것만으로 AI를 활성화하지 않는다.
+- graphify 등 문서 의미 분석의 외부 모델 호출에는 `.env.local`의 `OPENROUTER_API_KEY`를 사용한다. Gemini 전용 키를 요구하지 않는다. 도구가 OpenRouter를 직접 지원하지 않으면 호환 연동을 준비하고, 설정된 모델·예산 및 비밀값 보호 규칙을 준수한다.
 - 사용자 코드를 서버에서 실행하지 않는다. 미리보기는 opaque-origin sandbox에서만 실행한다.
 - `npm run check`, `npm run build`, `npm run test:e2e`로 변경 범위를 검증한다.
 

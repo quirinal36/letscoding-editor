@@ -1,25 +1,25 @@
 {
-  "node_count": 475,
+  "node_count": 506,
   "unverified_node_count": 0,
-  "raw_edge_count": 1154,
+  "raw_edge_count": 1140,
   "non_object_edges": 0,
   "missing_endpoint_edges": 0,
-  "dangling_endpoint_edges": 116,
+  "dangling_endpoint_edges": 100,
   "self_loop_edges": 0,
-  "valid_candidate_edges": 1038,
+  "valid_candidate_edges": 1040,
   "exact_duplicate_edges": 0,
-  "directed_unique_endpoint_pairs": 1012,
+  "directed_unique_endpoint_pairs": 1014,
   "directed_same_endpoint_collapsed_edges": 26,
-  "undirected_unique_endpoint_pairs": 1010,
-  "undirected_same_endpoint_collapsed_edges": 28,
+  "undirected_unique_endpoint_pairs": 1014,
+  "undirected_same_endpoint_collapsed_edges": 26,
   "same_endpoint_group_count": 25,
   "relation_variant_groups": 24,
   "source_file_variant_groups": 0,
   "source_location_variant_groups": 1,
   "context_variant_groups": 0,
   "post_build_graph_type": "Graph",
-  "post_build_node_count": 475,
-  "post_build_edge_count": 1010,
+  "post_build_node_count": 506,
+  "post_build_edge_count": 1014,
   "post_build_error": "",
   "producer_suppression": {
     "path": "/Users/letscoding/.local/share/uv/tools/graphifyy/lib/python3.13/site-packages/graphify/extract.py",
@@ -125,46 +125,6 @@
       ]
     },
     {
-      "source": "src_instrumentation_client",
-      "target": "src_lib_observability_redactevent",
-      "edge_count": 2,
-      "relations": [
-        "imports",
-        "indirect_call"
-      ],
-      "source_files": [
-        "src/instrumentation-client.ts"
-      ],
-      "source_locations": [
-        "L2",
-        "L8"
-      ],
-      "contexts": [
-        "collection",
-        "import"
-      ]
-    },
-    {
-      "source": "src_lib_preview_buildpreview",
-      "target": "src_lib_preview_buildpreview_asset",
-      "edge_count": 2,
-      "relations": [
-        "calls",
-        "contains"
-      ],
-      "source_files": [
-        "src/lib/preview.ts"
-      ],
-      "source_locations": [
-        "L16",
-        "L74"
-      ],
-      "contexts": [
-        "",
-        "call"
-      ]
-    },
-    {
       "source": "src_app_api_github_route",
       "target": "src_lib_server_github_api",
       "edge_count": 2,
@@ -200,6 +160,46 @@
       "contexts": [
         "",
         "argument"
+      ]
+    },
+    {
+      "source": "src_components_editor_app_editorapp",
+      "target": "src_components_editor_app_editorapp_refreshusage",
+      "edge_count": 2,
+      "relations": [
+        "calls",
+        "contains"
+      ],
+      "source_files": [
+        "src/components/editor-app.tsx"
+      ],
+      "source_locations": [
+        "L1427",
+        "L195"
+      ],
+      "contexts": [
+        "",
+        "call"
+      ]
+    },
+    {
+      "source": "src_components_editor_app_editorapp",
+      "target": "src_components_editor_app_editorapp_openproject",
+      "edge_count": 2,
+      "relations": [
+        "calls",
+        "contains"
+      ],
+      "source_files": [
+        "src/components/editor-app.tsx"
+      ],
+      "source_locations": [
+        "L2331",
+        "L254"
+      ],
+      "contexts": [
+        "",
+        "call"
       ]
     }
   ]

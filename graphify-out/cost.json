@@ -17,9 +17,20 @@
       "output_tokens": null,
       "token_usage_available": false,
       "external_api_calls": 0
+    },
+    {
+      "date": "2026-10-04T13:46:35.824317+00:00",
+      "mode": "full-openrouter",
+      "files": 85,
+      "semantic_files": 21,
+      "input_tokens": 224534,
+      "output_tokens": 31640,
+      "provider_reported_cost_usd": 0.1035935,
+      "uncertain_cost_upper_bound_usd": 0.012415499999999996,
+      "external_api_calls": 21
     }
   ],
-  "total_input_tokens": 0,
-  "total_output_tokens": 0,
+  "total_input_tokens": 224534,
+  "total_output_tokens": 31640,
   "token_usage_note": "Session/subagent usage not exposed; cumulative numeric counters do not include unmeasured session extraction."
 }
