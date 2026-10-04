@@ -1,6 +1,6 @@
 # 학생 개인 GitHub 연동
 
-2026-10-04 구현 상태: DB migration 적용 완료(384건 일치, 미적용 0건). App 등록은 GitHub의 Confirm access 재인증을 기다리고 있으며 아직 클라이언트 비밀값을 발급하거나 기능을 활성화하지 않았다.
+2026-10-04 구현 상태: DB migration 적용 완료(384건 일치, 미적용 0건). GitHub 재인증 후 `quirinal36` 소유의 [LetsCoding Editor](https://github.com/apps/letscoding-editor)를 등록했다(App ID `5186293`, slug `letscoding-editor`). Client Secret은 발급했지만 서버로 이전하지 않았고 기능은 비활성 상태다. 비밀값 이전의 자동 승인 검토가 임시 파일 저장을 차단하여 사용자 확인을 기다린다. 비밀값을 출력하거나 커밋하지 않았다.
 
 App 소유 계정은 사용자 결정에 따라 `quirinal36`이다. 라운지 로그인과 GitHub 연결은 별개이며, 각 학생이 자신의 GitHub 계정으로 승인한다.
 
@@ -48,7 +48,7 @@ GitHub → `quirinal36` Settings → Developer settings → GitHub Apps에서 �
 - `EDITOR_GITHUB_ENABLED=true`: App과 DB 준비 후 명시적으로 활성화한다. 기본값은 false이며 설정이 부족해도 API는 차단된다.
 - `NEXT_PUBLIC_APP_URL`: 해당 환경의 정식 origin. 로컬 검증에는 로컬 origin과 해당 App의 별도 callback 등록이 필요하다. 운영 비밀값을 Preview에 복제하지 않는다.
 
-이 방식에서는 App private key나 installation token을 생성할 필요가 없다. 클라이언트 비밀값과 쿠키 암호화 키는 `.env.local` 및 에디터 프로젝트 서버 환경에만 두고 출력·커밋하지 않는다.
+앱 런타임은 사용자 토큰을 사용하므로 installation token과 App private key를 사용하지 않는다. 다만 GitHub의 실제 등록 화면은 설치 전에 private key 생성을 요구한다. 이 설치 선행 조건용 키는 아직 발급하지 않았으며, 발급 시 안전하게 보관하고 Vercel 런타임에는 등록하지 않는다. 클라이언트 비밀값과 쿠키 암호화 키는 `.env.local` 및 에디터 프로젝트 서버 환경에만 두고 출력·커밋하지 않는다.
 
 ## 토큰·계정·충돌 처리
 
@@ -69,7 +69,8 @@ GitHub → `quirinal36` Settings → Developer settings → GitHub Apps에서 �
 
 ## 사람이 확인할 사항
 
-- GitHub가 App 등록 시 요청하는 `quirinal36` 보안 재인증(패스키/인증 앱 등).
+- 완료: `quirinal36` 보안 재인증과 App 등록. Contents 읽기·쓰기, Metadata 읽기, Any account 설치, 정확한 운영 callback, webhook 끔으로 등록했다.
+- 남음: 발급한 Client Secret의 `.env.local`·Vercel Production 안전 이전 및 쿠키 키 생성, 설치 선행 조건용 private key의 안전한 보관. 자동 승인 검토가 비밀값 임시 파일 저장(암호문 포함)을 차단했으며, 아직 서버 환경이나 기능 플래그를 변경하지 않았다.
 - 학생 본인의 GitHub App 설치와 OAuth 승인. 타인의 계정으로 대신 승인하지 않는다.
 - 시험용 정적 저장소에서 실제 가져오기 → 수정·커밋 → GitHub에서 변경 확인 → 원격 수정·최신 가져오기 인수.
 - 두 GitHub 계정, 설치 해제, 토큰 만료, 보호 브랜치, 큰 파일, 네트워크 응답 유실의 실제 인수.
