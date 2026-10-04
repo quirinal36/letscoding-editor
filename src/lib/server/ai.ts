@@ -33,7 +33,7 @@ export function systemPrompt(project: Project, activeFile?: string) {
   );
 }
 export async function modelPrices(id: string) {
-  const response = await fetch("https://openrouter.ai/api/v1/models", {
+  const response = await fetch("https://openrouter.ai/api/v1/models?zdr=true", {
     signal: AbortSignal.timeout(10000),
     cache: "no-store",
   });
@@ -50,7 +50,9 @@ export async function modelPrices(id: string) {
     input < 0 ||
     output < 0
   )
-    throw new Error("선택 모델의 토큰 가격을 확인할 수 없습니다.");
+    throw new Error(
+      "선택 모델의 ZDR 지원과 토큰 가격을 확인할 수 없습니다. 다른 모델을 선택해주세요.",
+    );
   return { input, output };
 }
 export async function chat(
@@ -228,6 +230,8 @@ export async function chat(
             maxOutputTokens: 2048,
             stopWhen: stepCountIs(5),
             maxRetries: 0,
+            // SDK default logging includes provider request bodies. Keep them out of logs.
+            onError: () => {},
             abortSignal: abort,
             tools: {
               generate_image: tool({

@@ -190,3 +190,15 @@ test("turn reservations use estimated cost without raising the per-turn ceiling"
     assert.throws(() => turnReservation(estimate, 10), /예산/);
   assert.throws(() => turnReservation(0.03, 0), /예산/);
 });
+
+test("deployment ZIP digest ignores insertion order and wall-clock time", async () => {
+  const files = createProject("game", "stable").files;
+  const first = await createArtifact(files);
+  const reordered = Object.fromEntries(Object.entries(files).reverse());
+  const second = await createArtifact(reordered);
+  assert.equal(first.sha256, second.sha256);
+  const zip = await JSZip.loadAsync(first.bytes);
+  for (const file of Object.values(zip.files))
+    if (!file.dir)
+      assert.equal(file.date.toISOString(), "1980-01-01T00:00:00.000Z");
+});

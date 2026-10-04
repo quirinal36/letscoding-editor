@@ -2573,9 +2573,33 @@ export function EditorApp({ config }: { config: AppConfig }) {
                       </small>
                       <code>{d.sha256.slice(0, 20)}</code>
                       {d.url && (
-                        <a href={d.url} target="_blank" rel="noreferrer">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const popup = window.open("about:blank", "_blank");
+                            if (!popup) {
+                              fail(
+                                new Error("작품을 열려면 팝업을 허용해주세요."),
+                              );
+                              return;
+                            }
+                            popup.opener = null;
+                            popup.document.title = "작품 여는 중";
+                            popup.document.body.textContent =
+                              "작품을 여는 중입니다…";
+                            try {
+                              const result = await (
+                                await api("launch", { projectId: project!.id })
+                              ).json();
+                              popup.location.replace(result.url);
+                            } catch (error) {
+                              popup.close();
+                              fail(error);
+                            }
+                          }}
+                        >
                           작품 열기 ↗
-                        </a>
+                        </button>
                       )}
                       {d.error && <p>{d.error}</p>}
                     </div>

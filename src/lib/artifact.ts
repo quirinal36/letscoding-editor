@@ -42,11 +42,14 @@ export function binaryBytes(dataUrl: string) {
 export async function createArtifact(files: Project["files"]) {
   validateArtifact(files);
   const zip = new JSZip();
-  for (const [path, file] of Object.entries(files))
+  for (const [path, file] of Object.entries(files).sort(([a], [b]) =>
+    a.localeCompare(b, "en"),
+  ))
     if (file.kind !== "directory")
       zip.file(
         path,
         file.kind === "text" ? file.content : binaryBytes(file.content),
+        { date: new Date("1980-01-01T00:00:00.000Z") },
       );
   const bytes = await zip.generateAsync({
     type: "uint8array",

@@ -27,10 +27,11 @@ export function signedHeaders(
       .digest("hex"),
   };
 }
-export async function deploy(
+async function loungeCall(
   user: SessionUser,
   project: Project,
-  form: z.infer<typeof deployForm>,
+  action: string,
+  payload: Record<string, unknown>,
 ) {
   const base = process.env.LOUNGE_INTERNAL_API_URL,
     secret = process.env.LOUNGE_INTERNAL_API_SECRET;
@@ -47,32 +48,40 @@ export async function deploy(
     )
   )
     throw new Error("내부 배포 API는 HTTPS 주소여야 합니다.");
+
+  const body = JSON.stringify({
+    action,
+    userId: user.id,
+    editorProjectId: project.id,
+    ...payload,
+  });
+  const response = await fetch(base, {
+    method: "POST",
+    headers: signedHeaders(secret, body),
+    body,
+    signal: AbortSignal.timeout(action === "complete" ? 240000 : 25000),
+    redirect: "error",
+  });
+  const json = await response
+    .json()
+    .catch(() => ({ error: "라운지 API 응답 형식이 올바르지 않습니다." }));
+  if (!response.ok)
+    throw new Error(
+      json.code === "PROJECT_NOT_FOUND"
+        ? "연결된 라운지 작품이 삭제되었습니다. 연결 해제 후 새 작품으로 배포해주세요."
+        : (json.error ?? "라운지 배포 요청에 실패했습니다."),
+    );
+  return json;
+}
+
+export async function deploy(
+  user: SessionUser,
+  project: Project,
+  form: z.infer<typeof deployForm>,
+) {
   const artifact = await createArtifact(await cloudBytes(project));
-  const call = async (action: string, payload: Record<string, unknown>) => {
-    const body = JSON.stringify({
-      action,
-      userId: user.id,
-      editorProjectId: project.id,
-      ...payload,
-    });
-    const response = await fetch(base, {
-      method: "POST",
-      headers: signedHeaders(secret, body),
-      body,
-      signal: AbortSignal.timeout(25000),
-      redirect: "error",
-    });
-    const json = await response
-      .json()
-      .catch(() => ({ error: "라운지 API 응답 형식이 올바르지 않습니다." }));
-    if (!response.ok)
-      throw new Error(
-        json.code === "PROJECT_NOT_FOUND"
-          ? "연결된 라운지 작품이 삭제되었습니다. 연결 해제 후 새 작품으로 배포해주세요."
-          : (json.error ?? "라운지 배포 요청에 실패했습니다."),
-      );
-    return json;
-  };
+  const call = (action: string, payload: Record<string, unknown>) =>
+    loungeCall(user, project, action, payload);
   const init = await call("prepare", {
     loungeProjectId: project.loungeId,
     form,
@@ -151,4 +160,16 @@ export async function deploy(
       url: result.resultUrl,
     },
   };
+}
+
+/** Fresh short-lived owner authorization; never persist the launch code in history. */
+export async function launchDeployment(user: SessionUser, project: Project) {
+  if (!project.loungeId) throw new Error("먼저 라운지에 배포해주세요.");
+  const result = await loungeCall(user, project, "launch", {
+    loungeProjectId: project.loungeId,
+  });
+  const url = new URL(z.string().url().parse(result.resultUrl));
+  if (url.protocol !== "https:" || url.hostname !== "play.letscoding.kr")
+    throw new Error("작품 실행 주소가 올바르지 않습니다.");
+  return { url: url.toString() };
 }

@@ -16,7 +16,7 @@ import {
 import { generateImageFile } from "@/lib/server/image";
 import { chat, chatInput } from "@/lib/server/ai";
 import { appConfig, positive, turnReservation } from "@/lib/server/config";
-import { deploy, deployForm } from "@/lib/server/deploy";
+import { deploy, deployForm, launchDeployment } from "@/lib/server/deploy";
 import { applyProposal, assertPath, LIMITS } from "@/lib/vfs";
 import { createProject } from "@/lib/templates";
 import type { Project } from "@/lib/types";
@@ -59,6 +59,7 @@ export async function POST(request: Request) {
         "reject",
         "usage",
         "deploy",
+        "launch",
         "unlink",
         "image",
       ])
@@ -276,6 +277,15 @@ export async function POST(request: Request) {
           .filter((r) => r.date.startsWith(today.slice(0, 7)))
           .reduce((sum, r) => sum + Number(r.cost_usd), 0),
       });
+    }
+    if (action === "launch") {
+      return Response.json(
+        await launchDeployment(
+          user,
+          await get(user, uuid.parse(body.projectId)),
+        ),
+        { headers: { "Cache-Control": "no-store" } },
+      );
     }
     if (action === "deploy") {
       const project = await get(user, uuid.parse(body.projectId)),
