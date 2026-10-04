@@ -1282,6 +1282,16 @@ pre {
   line-height: 1.8;
   font-size: 13px;
 }
+.login-card form > label {
+  display: block;
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+.login-help {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
 .login-card form > button {
   margin-top: 15px;
   width: 100%;

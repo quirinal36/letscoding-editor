@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "node --import tsx --test tests/*.test.ts",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test && EDITOR_AUTH_TEST=true playwright test",
     "check": "npm run typecheck && npm run lint && npm test",
     "check:env": "node --import tsx scripts/check-env.ts",
     "predev": "node scripts/prepare-monaco.mjs",

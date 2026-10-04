@@ -110,6 +110,9 @@ export function EditorApp({ config }: { config: AppConfig }) {
     [projects, setProjects] = useState<Project[]>([]),
     [ready, setReady] = useState(false),
     [email, setEmail] = useState("");
+  const [password, setPassword] = useState(""),
+    [loginMode, setLoginMode] = useState<"password" | "link">("password"),
+    [loginPending, setLoginPending] = useState(false);
   const [theme, setTheme] = useState("dark"),
     [explorer, setExplorer] = useState(true),
     [chatVisible, setChatVisible] = useState(true),
@@ -1120,18 +1123,53 @@ export function EditorApp({ config }: { config: AppConfig }) {
               <form
                 onSubmit={async (e) => {
                   e.preventDefault();
+                  if (loginPending) return;
+                  setLoginPending(true);
+                  setError("");
+                  setNotice("");
                   try {
-                    const result = await browserSupabase().auth.signInWithOtp({
-                      email,
-                      options: {
-                        emailRedirectTo: `${location.origin}/auth/callback`,
-                        shouldCreateUser: false,
-                      },
-                    });
-                    if (result.error) throw result.error;
-                    setNotice("이메일로 로그인 링크를 보냈습니다.");
-                  } catch (e) {
-                    fail(e);
+                    if (loginMode === "password") {
+                      const { error } =
+                        await browserSupabase().auth.signInWithPassword({
+                          email: email.trim(),
+                          password,
+                        });
+                      if (error) {
+                        setError(
+                          error.code === "email_not_confirmed"
+                            ? "이메일 인증을 완료한 뒤 다시 로그인해주세요."
+                            : error.status === 429
+                              ? "로그인 시도가 많습니다. 잠시 후 다시 시도해주세요."
+                              : "로그인하지 못했습니다. 이메일과 비밀번호를 확인해주세요.",
+                        );
+                        return;
+                      }
+                      // Reload through the existing server-authorized session flow.
+                      window.location.reload();
+                    } else {
+                      const { error } =
+                        await browserSupabase().auth.signInWithOtp({
+                          email: email.trim(),
+                          options: {
+                            emailRedirectTo: `${location.origin}/auth/callback`,
+                            shouldCreateUser: false,
+                          },
+                        });
+                      if (error) {
+                        setError(
+                          "로그인 링크를 보내지 못했습니다. 이메일을 확인하고 잠시 후 다시 시도해주세요.",
+                        );
+                        return;
+                      }
+                      setNotice("이메일로 로그인 링크를 보냈습니다.");
+                    }
+                  } catch {
+                    setError(
+                      "로그인 서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.",
+                    );
+                  } finally {
+                    setPassword("");
+                    setLoginPending(false);
                   }
                 }}
               >
@@ -1139,15 +1177,67 @@ export function EditorApp({ config }: { config: AppConfig }) {
                 <input
                   id="email"
                   type="email"
+                  name="email"
+                  autoComplete="username"
+                  disabled={loginPending}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   placeholder="라운지 가입 이메일"
                 />
-                <button className="primary">로그인 링크 받기</button>
+                {loginMode === "password" && (
+                  <>
+                    <label htmlFor="password">비밀번호</label>
+                    <input
+                      id="password"
+                      name="password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={loginPending}
+                      required
+                    />
+                  </>
+                )}
+                <button
+                  type="submit"
+                  className="primary"
+                  disabled={loginPending}
+                >
+                  {loginPending
+                    ? loginMode === "password"
+                      ? "로그인 중…"
+                      : "로그인 링크 보내는 중…"
+                    : loginMode === "password"
+                      ? "이메일로 로그인"
+                      : "로그인 링크 받기"}
+                </button>
               </form>
+              <p className="login-help">
+                라운지에서 사용하던 이메일과 비밀번호로 로그인하세요. 비밀번호가
+                없거나 기억나지 않으면 이메일 로그인 링크 또는 카카오 로그인을
+                이용하세요.
+              </p>
               <button
+                type="button"
                 className="wide"
+                disabled={loginPending}
+                onClick={() => {
+                  setLoginMode(loginMode === "password" ? "link" : "password");
+                  setPassword("");
+                  setError("");
+                  setNotice("");
+                }}
+              >
+                {loginMode === "password"
+                  ? "이메일 로그인 링크 이용하기"
+                  : "비밀번호로 로그인하기"}
+              </button>
+              <button
+                type="button"
+                className="wide"
+                disabled={loginPending}
                 onClick={() =>
                   void browserSupabase()
                     .auth.signInWithOAuth({
