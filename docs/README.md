@@ -21,3 +21,5 @@
 10. [실제 학생 계정·AI·라운지 운영 검증](./07-live-verification.md)
 11. [학생 개인 GitHub 연동](./08-github-integration.md)
    - GitHub App 설정, 가져오기·커밋·최신 내용 가져오기, 계정 격리·충돌 처리와 남은 실제 인수
+12. [학생 Supabase 데이터베이스 연결 계획](./09-supabase-integration-plan.md)
+   - 마일스톤 M6·에픽 E-11·이슈 9개 등록 결과, 설계 요약, 열린 결정
