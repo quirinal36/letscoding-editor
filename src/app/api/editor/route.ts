@@ -19,6 +19,7 @@ import { appConfig, positive, turnReservation } from "@/lib/server/config";
 import { deploy, deployForm, launchDeployment } from "@/lib/server/deploy";
 import { applyProposal, assertPath, LIMITS } from "@/lib/vfs";
 import { createProject } from "@/lib/templates";
+import { normalizeLink, testSupabaseLink } from "@/lib/supabase-link";
 import type { Project } from "@/lib/types";
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -62,6 +63,8 @@ export async function POST(request: Request) {
         "launch",
         "unlink",
         "image",
+        "supabase-link",
+        "supabase-unlink",
       ])
       .parse(body.action);
     const telemetryId = (value: unknown) =>
@@ -85,7 +88,7 @@ export async function POST(request: Request) {
     if (action === "create") {
       const input = z
         .object({
-          template: z.enum(["blank", "game", "profile"]),
+          template: z.enum(["blank", "game", "profile", "guestbook"]),
           title: z.string().trim().min(1).max(100),
         })
         .parse(body);
@@ -211,6 +214,28 @@ export async function POST(request: Request) {
         .createSignedUploadUrl(storagePath);
       if (result.error) throw new Error("첨부 업로드 주소 생성 실패");
       return Response.json({ storagePath, token: result.data.token });
+    }
+    if (action === "supabase-link" || action === "supabase-unlink") {
+      if (!appConfig().supabaseLink)
+        return Response.json(
+          {
+            error:
+              "DB 연결을 준비 중입니다. 관리자가 설정을 완료하면 사용할 수 있습니다.",
+          },
+          { status: 503 },
+        );
+      const project = await get(user, uuid.parse(body.projectId));
+      if (action === "supabase-link") {
+        const link = normalizeLink(
+          z
+            .object({ url: z.string().max(200), anonKey: z.string().max(500) })
+            .parse(body.link),
+        );
+        await testSupabaseLink(link);
+        project.supabase = link;
+      } else delete project.supabase;
+      // The link is project metadata, like threads; file revision is untouched.
+      return Response.json(await save(user, project, project.revision, false));
     }
     if (action === "thread") {
       const project = await get(user, uuid.parse(body.projectId));

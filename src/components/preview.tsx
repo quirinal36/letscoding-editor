@@ -18,10 +18,12 @@ export type ConsoleEntry = {
 };
 export function Preview({
   files,
+  supabase,
   onConsole,
   onNavigate,
 }: {
   files: Project["files"];
+  supabase?: Project["supabase"];
   onConsole: (logs: ConsoleEntry[]) => void;
   onNavigate: (path: string, line: number) => void;
 }) {
@@ -36,7 +38,7 @@ export function Preview({
   useEffect(() => {
     let preview;
     try {
-      preview = buildPreview(files, channel.current);
+      preview = buildPreview(files, channel.current, supabase);
     } catch (error) {
       preview = {
         html: `<!doctype html><html lang="ko"><body><p>${String(error).replace(/[<>&]/g, "")}</p></body></html>`,
@@ -47,7 +49,7 @@ export function Preview({
     setHtml(preview.html);
     setLogs([]);
     return () => preview.dispose();
-  }, [files, key]);
+  }, [files, supabase, key]);
   useEffect(() => {
     const listener = (event: MessageEvent) => {
       if (

@@ -19,6 +19,9 @@ test("PostgreSQL migration: owner RLS, file/metadata CAS, versions and atomic bu
     await db.exec(await readFile("integration/editor-schema.sql", "utf8"));
     await db.exec(await readFile("integration/lounge-integration.sql", "utf8"));
     await db.exec(await readFile("integration/github-schema.sql", "utf8"));
+    await db.exec(
+      await readFile("integration/supabase-link-schema.sql", "utf8"),
+    );
     assert.equal(
       (
         await db.query(
@@ -81,6 +84,29 @@ test("PostgreSQL migration: owner RLS, file/metadata CAS, versions and atomic bu
     });
     await assert.rejects(() => save(0, true, false, 0), /revision/);
     await assert.rejects(() => save(1, false, true, 0), /metadata revision/);
+    // Student Supabase link lives in the snapshot: metadata saves write it, file saves keep it, unlink drops it.
+    const supabase = {
+      url: "https://abcdefghijklmnopqrst.supabase.co",
+      anonKey: "sb_publishable_test_only_key_value",
+      connectedAt: "2026-10-06T00:00:00.000Z",
+    };
+    const snapshot = async () =>
+      (
+        await db.query<{ snapshot: { supabase?: typeof supabase } }>(
+          "select snapshot from editor.editor_projects where id=$1",
+          [project.id],
+        )
+      ).rows[0].snapshot;
+    assert.deepEqual(
+      (await save(1, false, true, 1, { ...project, supabase })).rows[0].result,
+      { revision: 1, metadataRevision: 2 },
+    );
+    assert.deepEqual((await snapshot()).supabase, supabase);
+    await save(1, false, false, 0);
+    assert.deepEqual((await snapshot()).supabase, supabase);
+    await save(1, false, true, 2);
+    assert.equal((await snapshot()).supabase, undefined);
+    assert.equal("supabase" in (await snapshot()), false);
     assert.equal(
       (await db.query("select * from editor.editor_file_versions")).rows.length,
       1,
@@ -163,7 +189,8 @@ test("PostgreSQL migration: owner RLS, file/metadata CAS, versions and atomic bu
       )
     ).rows[0];
     assert.equal(gitSaved.revision, 2);
-    assert.equal(gitSaved.metadata_revision, 1);
+    // Unchanged since the Supabase link saves above: Git sync never advances metadata.
+    assert.equal(gitSaved.metadata_revision, 3);
     await db.exec(
       `set role authenticated;set "request.jwt.claim.sub"='${other}'`,
     );

@@ -1,9 +1,27 @@
-# 학생 Supabase 데이터베이스 연결 — 계획
+# 학생 Supabase 데이터베이스 연결
 
-> 작성일: 2026-10-06 (Asia/Seoul) · 상태: GitHub 등록 완료, 결정·구현 대기
+> 작성일: 2026-10-06 (Asia/Seoul) · 상태: 결정 완료, 1차 구현·자동 검증 완료, 실제 학생 인수 대기
 > 대상: `quirinal36/letscoding-editor` · 마일스톤 [M6](https://github.com/quirinal36/letscoding-editor/milestone/7) · 에픽 [#60](https://github.com/quirinal36/letscoding-editor/issues/60)
 
-학생이 본인 Supabase 프로젝트를 [GitHub 연동](./08-github-integration.md)과 같은 모양의 패널에서 연결하고, 작품 코드에서 데이터베이스를 읽고 쓰게 한다. 이 문서는 계획이며 등록이 구현 완료를 뜻하지 않는다.
+학생이 본인 Supabase 프로젝트를 [GitHub 연동](./08-github-integration.md)과 같은 모양의 패널에서 연결하고, 작품 코드에서 데이터베이스를 읽고 쓰게 한다. 실제 학생 Supabase 계정으로의 연결·미리보기·배포 왕복 인수([#69](https://github.com/quirinal36/letscoding-editor/issues/69))는 아직 수행하지 않았다.
+
+## 구현 결과 (2026-10-06)
+
+| 항목 | 위치 |
+| --- | --- |
+| URL·키 검증, CSP 소스, `supabase.js` 생성, 비밀키 검출, 방명록 SQL, 연결 테스트 | `src/lib/supabase-link.ts` |
+| 연결 패널(입력·테스트·연결·코드에 넣기·SQL 복사·해제) | `src/components/supabase-panel.tsx`, 상단 `DB` 버튼·명령 팔레트 `DB 연결 열기` (`editor-app.tsx`) |
+| 미리보기 CSP: 연결 호스트·CDN만 추가 | `src/lib/preview.ts` `previewCsp()` |
+| 배포 ZIP: service_role·secret 키 검출 시 차단 | `src/lib/artifact.ts` |
+| 서버 API `supabase-link`·`supabase-unlink` (소유권 검사, 서버 측 연결 테스트, 메타데이터 저장) | `src/app/api/editor/route.ts` |
+| 저장: `Project.supabase`를 `editor_projects.snapshot.supabase`에 보관. 데모는 IndexedDB | `src/lib/types.ts`, `src/lib/server/repository.ts`, [`integration/supabase-link-schema.sql`](../integration/supabase-link-schema.sql) |
+| 방명록 템플릿(연결 전 안내, 연결 후 글쓰기·목록) | `src/lib/templates.ts` |
+| AI 컨텍스트에 연결 여부·호스트명만 전달(키 원문 제외) | `src/lib/server/ai.ts` |
+| 활성화 플래그 `EDITOR_SUPABASE_LINK_ENABLED` (데모는 항상 사용 가능) | `src/lib/server/config.ts`, `.env.example`, `scripts/check-env.ts` |
+
+검증: 단위 테스트 `tests/supabase-link.test.ts`(URL·키 분류·CSP·연결 테스트·배포 차단), `tests/database.test.ts`(snapshot 저장·유지·해제), E2E `tests/e2e/supabase.spec.ts`(키 차단→연결→재로드 유지→미리보기 허용/차단→코드 생성→해제). `npm run check`, `npm run build` 통과. E2E의 미리보기 iframe 단계는 이 세션의 컨테이너 Chromium에서는 기존 격리 테스트도 함께 실패하는 환경 문제로 CI에서 확인한다.
+
+남은 작업: 공유 DB migration 원본은 라운지 저장소가 `integration/supabase-link-schema.sql`을 바탕으로 적용한다(적용 전 운영에서는 연결이 snapshot에 저장되지 않으므로 `EDITOR_SUPABASE_LINK_ENABLED`를 켜지 않는다). supabase-js CDN(jsdelivr) 실제 로드와 라운지 호스팅 CSP는 실제 인수에서 확인한다. 테이블 데이터 읽기 전용 보기([#67](https://github.com/quirinal36/letscoding-editor/issues/67))는 SQL 복사만 구현했다.
 
 ## 배경과 현재 구조
 

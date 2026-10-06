@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import { LIMITS, assertPath, validateFiles, textFile } from "./vfs";
 import type { Project } from "./types";
+import { containsSecretKey } from "./supabase-link";
 export const POLICY_VERSION = "editor-static-v1";
 const EXTENSIONS = new Set(
   "html htm css js mjs json md txt png jpg jpeg gif svg webp ico mp3 wav ogg mp4 woff woff2 ttf gltf glb bin".split(
@@ -16,6 +17,10 @@ export function validateArtifact(files: Project["files"]) {
     if (!EXTENSIONS.has(path.split(".").at(-1)?.toLowerCase() ?? ""))
       throw new Error(
         `${path}: 배포에서 지원하지 않는 확장자입니다. TS/React는 먼저 정적 JS로 만들어야 합니다.`,
+      );
+    if (file.kind === "text" && containsSecretKey(file.content))
+      throw new Error(
+        `${path}: Supabase service_role·secret 키가 들어 있어 배포할 수 없습니다. anon key만 사용하세요.`,
       );
     if (file.kind === "text" && /\.(html?|css|m?js)$/i.test(path)) {
       const patterns = [

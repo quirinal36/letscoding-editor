@@ -1,9 +1,16 @@
 import type { Project } from "./types";
 import { resolvePath } from "./vfs";
+import { previewSources, type SupabaseLink } from "./supabase-link";
 export type PreviewDocument = { html: string; dispose: () => void };
+export function previewCsp(supabase?: SupabaseLink | null) {
+  // Only the linked Supabase host and the supabase-js CDN open; everything else stays blocked.
+  const extra = previewSources(supabase);
+  return `default-src 'none'; script-src 'unsafe-inline' data: blob:${extra.script}; style-src 'unsafe-inline' data: blob:; img-src data: blob:; font-src data: blob:; media-src data: blob:; connect-src data: blob:${extra.connect}; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'`;
+}
 export function buildPreview(
   files: Project["files"],
   channel: string,
+  supabase?: SupabaseLink | null,
 ): PreviewDocument {
   if (files["index.html"]?.kind !== "text")
     return {
@@ -63,8 +70,7 @@ export function buildPreview(
     .forEach((n) => n.remove());
   const csp = doc.createElement("meta");
   csp.httpEquiv = "Content-Security-Policy";
-  csp.content =
-    "default-src 'none'; script-src 'unsafe-inline' data: blob:; style-src 'unsafe-inline' data: blob:; img-src data: blob:; font-src data: blob:; media-src data: blob:; connect-src data: blob:; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
+  csp.content = previewCsp(supabase);
   doc.head.prepend(csp);
   for (const el of doc.querySelectorAll("[src],[href],[poster]"))
     for (const attr of ["src", "href", "poster"]) {

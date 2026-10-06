@@ -47,6 +47,13 @@ import {
   Palette,
 } from "lucide-react";
 import { GitHubPanel } from "./github-panel";
+import { SupabasePanel } from "./supabase-panel";
+import {
+  SUPABASE_CLIENT_FILE,
+  supabaseClientFile,
+  testSupabaseLink,
+  type SupabaseLink,
+} from "@/lib/supabase-link";
 import { Dialog } from "./dialog";
 import { Preview, type ConsoleEntry } from "./preview";
 import {
@@ -94,6 +101,7 @@ type Modal =
   | "quick-open"
   | "commands"
   | "github"
+  | "supabase"
   | "deploy"
   | "usage"
   | null;
@@ -191,6 +199,33 @@ export function EditorApp({ config }: { config: AppConfig }) {
   function assign(next: Project) {
     current.current = next;
     setProject(next);
+  }
+  async function setSupabaseLink(link: SupabaseLink | null) {
+    const snapshot = current.current;
+    if (!snapshot) return;
+    if (dirty.current) await flush();
+    if (config.demo) {
+      // Demo keeps the public link in IndexedDB; the browser performs the reachability test.
+      if (link) await testSupabaseLink(link);
+      const next = { ...current.current!, supabase: link ?? undefined };
+      if (!link) delete next.supabase;
+      assign(next);
+      await flush(false);
+      return;
+    }
+    const saved: Project = await (
+      await api(link ? "supabase-link" : "supabase-unlink", {
+        projectId: snapshot.id,
+        link,
+      })
+    ).json();
+    const next = {
+      ...current.current!,
+      supabase: saved.supabase,
+      metadataRevision: saved.metadataRevision,
+    };
+    if (!saved.supabase) delete next.supabase;
+    assign(next);
   }
   async function refreshUsage() {
     if (config.demo) return;
@@ -1045,11 +1080,15 @@ export function EditorApp({ config }: { config: AppConfig }) {
     "미리보기 열기",
     "코드 정리",
     "코드와 미리보기 분할",
+    "DB 연결 열기",
   ];
   function runCommand(title: string) {
     switch (title) {
       case "코드와 미리보기 분할":
         setSplit((v) => !v);
+        break;
+      case "DB 연결 열기":
+        showModal("supabase");
         break;
       case "새 파일":
         showModal("new-file");
@@ -1348,6 +1387,13 @@ export function EditorApp({ config }: { config: AppConfig }) {
           onClick={() => setModal("github")}
         >
           GitHub
+        </button>
+        <button
+          className="github-button"
+          disabled={busy}
+          onClick={() => setModal("supabase")}
+        >
+          DB
         </button>
         <button
           className="deploy-button"
@@ -1725,6 +1771,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
                 {(pane === "preview" || split) && project && (
                   <Preview
                     files={project.files}
+                    supabase={project.supabase}
                     onConsole={setLogs}
                     onNavigate={(path, line) => {
                       openFile(path);
@@ -2250,6 +2297,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
               "quick-open": "파일 빠르게 열기",
               commands: "명령 팔레트",
               github: "GitHub 연동",
+              supabase: "DB 연결",
               deploy: "작품 배포",
               usage: "AI 사용량",
             }[modal]
@@ -2454,6 +2502,27 @@ export function EditorApp({ config }: { config: AppConfig }) {
               onProject={async (next) => {
                 setProjects(await listProjects(config.demo));
                 await openProject(next);
+              }}
+            />
+          )}
+          {modal === "supabase" && (
+            <SupabasePanel
+              enabled={config.supabaseLink}
+              demo={config.demo}
+              project={project}
+              onLink={(link) => setSupabaseLink(link)}
+              onUnlink={() => setSupabaseLink(null)}
+              onInsertCode={async (link) => {
+                if (!current.current) return;
+                mutateFiles({
+                  ...current.current.files,
+                  [SUPABASE_CLIENT_FILE]: textFile(
+                    supabaseClientFile(link),
+                    "text/javascript",
+                  ),
+                });
+                openFile(SUPABASE_CLIENT_FILE);
+                setModal(null);
               }}
             />
           )}
