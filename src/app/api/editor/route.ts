@@ -291,13 +291,17 @@ export async function POST(request: Request) {
         const ids = z
           .array(uuid)
           .min(1)
-          .max(10)
+          .max(LIMITS.files)
           .refine((ids) => new Set(ids).size === ids.length)
           .parse(body.proposalIds);
         const message = project.threads
           .flatMap((t) => t.messages)
           .find((m) => m.proposals.some((p) => p.id === ids[0]));
-        if (!message || (action === "approve" && message.status !== "complete"))
+        if (
+          !message ||
+          (action === "approve" &&
+            !["complete", "partial"].includes(message.status))
+        )
           throw new Error("완료된 작업만 자동 반영할 수 있습니다.");
         const proposals = ids.map((id) => {
           const proposal = message.proposals.find((p) => p.id === id);

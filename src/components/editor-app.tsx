@@ -24,6 +24,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  Github,
   ImagePlus,
   LoaderCircle,
   LogOut,
@@ -35,7 +36,6 @@ import {
   Paperclip,
   Play,
   Plus,
-  Settings2,
   Sparkles,
   Square,
   Sun,
@@ -60,7 +60,8 @@ import {
   uploadAttachments,
 } from "@/lib/client";
 import { createProject } from "@/lib/templates";
-import { monthlyUsageLabel } from "@/lib/usage";
+import { monthlyUsageLabel, monthlyUsagePercent } from "@/lib/usage";
+import { loungeIntent, loungePrompts } from "@/lib/lounge-prompts";
 import {
   applyProposal,
   applyProposals,
@@ -105,7 +106,6 @@ type Modal =
   | "commands"
   | "github"
   | "deploy"
-  | "usage"
   | null;
 const fileReader = (file: Blob) =>
   new Promise<string>((resolve, reject) => {
@@ -158,6 +158,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
     [name, setName] = useState(""),
     [target, setTarget] = useState(""),
     [formError, setFormError] = useState(""),
+    [projectSubmitPending, setProjectSubmitPending] = useState(false),
     [projectDeletePending, setProjectDeletePending] = useState(false),
     [projectDuplicatePending, setProjectDuplicatePending] = useState(false),
     [accountStorage, setAccountStorage] = useState<{
@@ -186,20 +187,10 @@ export function EditorApp({ config }: { config: AppConfig }) {
     [usageStatus, setUsageStatus] = useState<"loading" | "ready" | "error">(
       "loading",
     ),
-    [usageDays, setUsageDays] = useState<
-      {
-        date: string;
-        cost_usd: number;
-        prompt_tokens: number;
-        completion_tokens: number;
-      }[]
-    >([]),
     [uploadProgress, setUploadProgress] = useState(""),
     [storageProgress, setStorageProgress] = useState(""),
     [usageClock, setUsageClock] = useState(() => Date.now()),
-    [prices, setPrices] = useState<
-      { id: string; inputPrice: number | null; outputPrice: number | null }[]
-    >([]);
+    [usageTooltipDismissed, setUsageTooltipDismissed] = useState(false);
   const [deployFields, setDeployFields] = useState({
     title: "",
     description: "",
@@ -223,11 +214,24 @@ export function EditorApp({ config }: { config: AppConfig }) {
     fileInput = useRef<HTMLInputElement>(null),
     imageInput = useRef<HTMLInputElement>(null),
     chatBottom = useRef<HTMLDivElement>(null),
+    chatInput = useRef<HTMLTextAreaElement>(null),
+    promptPopover = useRef<HTMLDivElement>(null),
     dragPath = useRef(""),
     tabDrag = useRef(""),
-    pendingCode = useRef("");
+    pendingCode = useRef(""),
+    projectSubmitLock = useRef(false);
   const thread =
     project?.threads.find((t) => t.id === threadId) ?? project?.threads[0];
+  const usageLabel = config.demo
+    ? "데모"
+    : !config.ai
+      ? "AI 비활성"
+      : usageStatus === "error"
+        ? "조회 실패"
+        : usageStatus === "loading"
+          ? "확인 중"
+          : monthlyUsageLabel(usage, usageClock);
+  const usageAvailable = !config.demo && config.ai && usageStatus === "ready";
   const deletingProject = projects.find((item) => item.id === target);
   const fail = useCallback((e: unknown) => {
     setError(e instanceof Error ? e.message : String(e));
@@ -267,7 +271,6 @@ export function EditorApp({ config }: { config: AppConfig }) {
       const result = await (await api("usage")).json();
       setUsage(result);
       setUsageClock(Date.now());
-      setUsageDays(result.days ?? []);
       setUsageStatus("ready");
     } catch {
       setUsageStatus("error");
@@ -486,13 +489,6 @@ export function EditorApp({ config }: { config: AppConfig }) {
     };
   }, [config.demo, config.cloud, fail, refreshUsage]);
   useEffect(() => {
-    if (!config.demo)
-      void fetch("/api/models")
-        .then((r) => r.json())
-        .then(setPrices)
-        .catch(() => {});
-  }, [config.demo]);
-  useEffect(() => {
     document.documentElement.dataset.theme = theme;
     if (ready) localStorage.setItem("editor-theme", theme);
   }, [theme, ready]);
@@ -538,12 +534,36 @@ export function EditorApp({ config }: { config: AppConfig }) {
     return () => channel.close();
   }, [projectId]);
   useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      const messages = chatBottom.current?.parentElement;
-      messages?.scrollTo({ top: messages.scrollHeight, behavior: "instant" });
+    if (!ready || !projectId || !chatVisible) return;
+    const messages = chatBottom.current?.parentElement;
+    if (!messages) return;
+    let followBottom = true;
+    const scroll = () =>
+      messages.scrollTo({ top: messages.scrollHeight, behavior: "instant" });
+    const onScroll = () => {
+      followBottom =
+        messages.scrollHeight - messages.clientHeight - messages.scrollTop < 2;
+    };
+    // Markdown renders asynchronously after the conversation first mounts.
+    const observer = new MutationObserver(() => {
+      if (followBottom) scroll();
     });
-    return () => cancelAnimationFrame(frame);
+    observer.observe(messages, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    messages.addEventListener("scroll", onScroll);
+    const frame = requestAnimationFrame(scroll);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      messages.removeEventListener("scroll", onScroll);
+    };
   }, [
+    ready,
+    projectId,
+    chatVisible,
     threadId,
     thread?.messages.length,
     pendingMessage?.id,
@@ -671,6 +691,10 @@ export function EditorApp({ config }: { config: AppConfig }) {
   }
   async function create(e: React.FormEvent) {
     e.preventDefault();
+    if (projectSubmitLock.current) return;
+    projectSubmitLock.current = true;
+    setProjectSubmitPending(true);
+    setFormError("");
     try {
       if (modal === "rename-project") {
         const item = projects.find((item) => item.id === target);
@@ -696,6 +720,9 @@ export function EditorApp({ config }: { config: AppConfig }) {
       await openProject(next);
     } catch (e) {
       setFormError(e instanceof Error ? e.message : String(e));
+    } finally {
+      projectSubmitLock.current = false;
+      setProjectSubmitPending(false);
     }
   }
   async function projectAction(
@@ -945,7 +972,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
   }
   async function applyGenerated(message: ChatMessage) {
     if (
-      message.status !== "complete" ||
+      !["complete", "partial"].includes(message.status) ||
       message.proposals.some((p) => p.requiresReview)
     )
       return;
@@ -976,7 +1003,11 @@ export function EditorApp({ config }: { config: AppConfig }) {
     setDiff(null);
     setSplit(false);
     setPane("preview");
-    setNotice("작품에 반영했어요. 미리보기에서 확인해보세요.");
+    setNotice(
+      message.status === "partial"
+        ? "완성된 부분을 반영했어요. 채팅 안내를 따라 남은 작업을 이어가세요."
+        : "작품에 반영했어요. 미리보기에서 확인해보세요.",
+    );
   }
   async function review(proposal: Proposal, apply: boolean) {
     if (!project) return;
@@ -1098,7 +1129,11 @@ export function EditorApp({ config }: { config: AppConfig }) {
         await flush(false);
         if (!controller.signal.aborted) await applyGenerated(answer);
       } else {
-        if (!config.ai)
+        const lounge = loungeIntent(text);
+        if (
+          !config.ai &&
+          !(lounge.artifact && !lounge.ranking && !lounge.displayName)
+        )
           throw new Error("실제 AI는 키·모델·예산 설정 후 사용할 수 있습니다.");
         const response = await api(
           "chat",
@@ -1128,6 +1163,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
           decoder = new TextDecoder();
         let buffer = "";
         let message: ChatMessage | undefined;
+        let artifact: { sha256: string } | undefined;
         let streamError = "";
         while (!message) {
           const { value, done } = await reader.read();
@@ -1148,7 +1184,10 @@ export function EditorApp({ config }: { config: AppConfig }) {
               streamError = event.error;
               setError(streamError);
             }
-            if (event.type === "done") message = event.message;
+            if (event.type === "done") {
+              message = event.message;
+              artifact = event.artifact;
+            }
           }
         }
         await reader.cancel();
@@ -1163,6 +1202,16 @@ export function EditorApp({ config }: { config: AppConfig }) {
         await receiveProject(latest, savedBase);
         setPendingMessage(null);
         if (message) await applyGenerated(message);
+        if (artifact && message.status === "complete") {
+          if (
+            typeof artifact.sha256 !== "string" ||
+            !/^[a-f0-9]{64}$/.test(artifact.sha256)
+          )
+            throw new Error(
+              "ZIP 검증 결과가 올바르지 않아 다운로드하지 않았습니다. 다시 요청해주세요.",
+            );
+          await download(artifact.sha256);
+        }
         await refreshUsage();
       }
       setAttachments([]);
@@ -1226,11 +1275,15 @@ export function EditorApp({ config }: { config: AppConfig }) {
       setBusy(false);
     }
   }
-  async function download() {
+  async function download(expectedSha256?: string) {
     if (!project) return;
     try {
       if (dirty.current) await flush();
       const artifact = await createArtifact(current.current!.files);
+      if (expectedSha256 && artifact.sha256 !== expectedSha256)
+        throw new Error(
+          "검증 후 파일이 변경되었거나 변경안이 아직 반영되지 않았습니다. 반영한 뒤 ZIP을 다시 요청해주세요.",
+        );
       const url = URL.createObjectURL(
           new Blob([new Uint8Array(artifact.bytes)], {
             type: "application/zip",
@@ -1676,7 +1729,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
               )}
               {
                 {
-                  saved: config.demo ? "이 기기에 저장됨" : "서버에 저장됨",
+                  saved: "저장됨",
                   saving: "저장 중…",
                   dirty: "저장 대기",
                   error: "저장 실패 · 다시 시도",
@@ -1684,19 +1737,12 @@ export function EditorApp({ config }: { config: AppConfig }) {
               }
             </span>
             <button
-              className="github-button"
-              disabled={busy}
-              onClick={() => setModal("github")}
-            >
-              GitHub
-            </button>
-            <button
               className="deploy-button"
               onClick={openDeploy}
               disabled={!project || busy}
             >
               <Rocket size={15} />
-              {project?.loungeId ? "재배포" : "배포하기"}
+              라운지에 게시하기
             </button>
           </>
         )}
@@ -1857,16 +1903,15 @@ export function EditorApp({ config }: { config: AppConfig }) {
             >
               <MessageSquare size={22} />
             </button>
-            <div className="grow" />
             <button
-              aria-label="사용량 보기"
-              onClick={() => {
-                void refreshUsage();
-                setModal("usage");
-              }}
+              aria-label="GitHub"
+              title="GitHub"
+              disabled={busy}
+              onClick={() => setModal("github")}
             >
-              <Settings2 size={21} />
+              <Github size={22} />
             </button>
+            <div className="grow" />
           </aside>
           <Group orientation="horizontal" className="panels" id="workbench">
             {explorer && (
@@ -2008,7 +2053,14 @@ export function EditorApp({ config }: { config: AppConfig }) {
                             >
                               {folder ? (
                                 fileFilter.trim() || expanded.has(path) ? (
-                                  <ChevronDown size={12} />
+                                  <svg
+                                    width="10"
+                                    height="10"
+                                    viewBox="0 0 10 10"
+                                    aria-hidden="true"
+                                  >
+                                    <path d="M1 3h8L5 7z" fill="currentColor" />
+                                  </svg>
                                 ) : (
                                   <ChevronRight size={12} />
                                 )
@@ -2328,21 +2380,53 @@ export function EditorApp({ config }: { config: AppConfig }) {
                         <button
                           className="ai-remaining"
                           aria-label="이번 달 남은 AI 사용량"
-                          title="월간 한도에서 사용·예약 금액을 뺀 비율 · 한국 시간 매월 1일 초기화"
-                          onClick={() => {
-                            showModal("usage");
-                            void refreshUsage();
+                          aria-describedby="ai-remaining-tooltip"
+                          data-tooltip-dismissed={usageTooltipDismissed}
+                          onMouseEnter={() => setUsageTooltipDismissed(false)}
+                          onFocus={() => setUsageTooltipDismissed(false)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") {
+                              setUsageTooltipDismissed(true);
+                              event.stopPropagation();
+                            }
                           }}
+                          onClick={() => void refreshUsage()}
                         >
-                          {config.demo
-                            ? "데모"
-                            : !config.ai
-                              ? "AI 비활성"
-                              : usageStatus === "error"
-                                ? "조회 실패"
-                                : usageStatus === "loading"
-                                  ? "확인 중"
-                                  : monthlyUsageLabel(usage, usageClock)}
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="24"
+                            height="24"
+                            aria-hidden="true"
+                          >
+                            <circle
+                              className="usage-track"
+                              cx="12"
+                              cy="12"
+                              r="9"
+                              fill="none"
+                              strokeWidth="3"
+                            />
+                            {usageAvailable && (
+                              <circle
+                                className="usage-arc"
+                                cx="12"
+                                cy="12"
+                                r="9"
+                                fill="none"
+                                strokeWidth="3"
+                                pathLength="100"
+                                strokeDasharray={`${monthlyUsagePercent(usage)} 100`}
+                                transform="rotate(-90 12 12)"
+                              />
+                            )}
+                          </svg>
+                          <span
+                            id="ai-remaining-tooltip"
+                            role="tooltip"
+                            className="usage-tooltip"
+                          >
+                            {usageLabel}
+                          </span>
                         </button>
                         <button
                           aria-label="새 대화"
@@ -2447,6 +2531,15 @@ export function EditorApp({ config }: { config: AppConfig }) {
                           />
                           {message.status === "error" && (
                             <small>응답 생성 실패</small>
+                          )}
+                          {message.status === "partial" && (
+                            <small>
+                              {message.proposals.every(
+                                (p) => p.status === "applied",
+                              )
+                                ? "완성된 부분 반영됨"
+                                : "완성된 부분 보관됨"}
+                            </small>
                           )}
                           {message.status === "interrupted" && (
                             <small>중단된 응답</small>
@@ -2581,6 +2674,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
                         AI에게 보낼 메시지
                       </label>
                       <textarea
+                        ref={chatInput}
                         id="chat-input"
                         placeholder="여기에 프롬프트를 작성하세요."
                         value={prompt}
@@ -2599,6 +2693,48 @@ export function EditorApp({ config }: { config: AppConfig }) {
                         }}
                       />
                       <div className="composer-toolbar">
+                        <button
+                          type="button"
+                          aria-label="프롬프트 목록"
+                          popoverTarget="lounge-prompts"
+                          disabled={busy}
+                          onClick={(event) => {
+                            const rect =
+                              event.currentTarget.getBoundingClientRect();
+                            if (promptPopover.current) {
+                              promptPopover.current.style.left = `${Math.max(16, Math.min(rect.left, window.innerWidth - Math.min(340, window.innerWidth - 32) - 16))}px`;
+                              promptPopover.current.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+                            }
+                          }}
+                        >
+                          <MessageSquare size={16} />
+                        </button>
+                        <div
+                          ref={promptPopover}
+                          id="lounge-prompts"
+                          popover="auto"
+                          className="prompt-popover"
+                          role="group"
+                          aria-label="라운지 프롬프트"
+                        >
+                          <strong>라운지 프롬프트</strong>
+                          {loungePrompts.map((text) => (
+                            <button
+                              key={text}
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                setPrompt((draft) =>
+                                  draft.trim() ? `${draft}\n${text}` : text,
+                                );
+                                promptPopover.current?.hidePopover();
+                                chatInput.current?.focus();
+                              }}
+                            >
+                              {text}
+                            </button>
+                          ))}
+                        </div>
                         <button
                           type="button"
                           aria-label="이미지 첨부"
@@ -2662,29 +2798,6 @@ export function EditorApp({ config }: { config: AppConfig }) {
             {status === "error" ? "저장 다시 시도" : "모든 변경 저장"}
           </button>
           <div className="grow" />
-          <button
-            className={
-              usage &&
-              usage.dailyLimitUsd &&
-              usage.costUsd / usage.dailyLimitUsd >= 0.8
-                ? "usage-warning"
-                : ""
-            }
-            onClick={() => {
-              void refreshUsage();
-              setModal("usage");
-            }}
-          >
-            {config.demo
-              ? "AI 데모"
-              : !config.ai
-                ? "AI 비활성"
-                : usageStatus === "error"
-                  ? "AI 사용량 확인 실패"
-                  : usage
-                    ? `AI $${usage.costUsd.toFixed(3)} / $${usage.dailyLimitUsd.toFixed(2)}`
-                    : "AI 사용량 확인 중…"}
-          </button>
           <span>
             줄 {cursor.line}, 열 {cursor.column}
           </span>
@@ -2734,7 +2847,6 @@ export function EditorApp({ config }: { config: AppConfig }) {
               commands: "명령 팔레트",
               github: "GitHub 연동",
               deploy: "작품 배포",
-              usage: "AI 사용량",
             }[modal]
           }
           onClose={() => {
@@ -2934,10 +3046,15 @@ export function EditorApp({ config }: { config: AppConfig }) {
                     {formError}
                   </p>
                 )}
-                <button className="primary wide">
-                  {modal === "rename-project"
-                    ? "프로젝트 이름 바꾸기"
-                    : "프로젝트 만들기"}
+                <button
+                  className="primary wide"
+                  disabled={projectSubmitPending}
+                >
+                  {projectSubmitPending
+                    ? "처리 중…"
+                    : modal === "rename-project"
+                      ? "프로젝트 이름 바꾸기"
+                      : "프로젝트 만들기"}
                 </button>
               </form>
             </>
@@ -3201,78 +3318,6 @@ export function EditorApp({ config }: { config: AppConfig }) {
                   ))}
               </div>
             </form>
-          )}
-          {modal === "usage" && (
-            <div className="usage-panel">
-              <p>
-                {config.demo
-                  ? "데모는 외부 모델을 호출하지 않으며 비용이 발생하지 않습니다."
-                  : usageStatus === "error"
-                    ? "사용량을 불러오지 못했습니다. 다시 조회해주세요. 편집과 저장은 계속할 수 있습니다."
-                    : usage
-                      ? `오늘 사용 $${usage.costUsd.toFixed(4)} · 이번 달 $${(usage.monthCostUsd ?? 0).toFixed(4)} · 예약 $${usage.reservedUsd.toFixed(4)} · 일일 한도 $${usage.dailyLimitUsd}`
-                      : "사용량을 확인하고 있습니다…"}
-              </p>
-              {!config.demo && (
-                <button onClick={() => void refreshUsage()}>
-                  사용량 다시 조회
-                </button>
-              )}
-              {!config.demo && !config.ai && (
-                <p>현재 실제 AI 호출은 비활성입니다.</p>
-              )}
-              {usage && (
-                <p>
-                  입력 {usage.promptTokens} · 출력 {usage.completionTokens} 토큰
-                </p>
-              )}
-              {usage && (
-                <p>
-                  최근 7일 $
-                  {usageDays
-                    .filter(
-                      (d) => Date.parse(d.date) >= usageClock - 7 * 86400000,
-                    )
-                    .reduce((sum, d) => sum + Number(d.cost_usd), 0)
-                    .toFixed(4)}{" "}
-                  · 최근 31일 $
-                  {usageDays
-                    .reduce((sum, d) => sum + Number(d.cost_usd), 0)
-                    .toFixed(4)}
-                </p>
-              )}
-              {prices.map((p) => (
-                <p key={p.id}>
-                  {p.id}: 입력{" "}
-                  {p.inputPrice === null
-                    ? "확인 불가"
-                    : `$${p.inputPrice.toFixed(3)}`}{" "}
-                  / 출력{" "}
-                  {p.outputPrice === null
-                    ? "확인 불가"
-                    : `$${p.outputPrice.toFixed(3)}`}{" "}
-                  (100만 토큰 기준)
-                </p>
-              ))}
-              <h3>최근 31일</h3>
-              {usageDays.map((day) => (
-                <div key={day.date} className="usage-day">
-                  <span>{day.date}</span>
-                  <meter
-                    min="0"
-                    max={Math.max(
-                      1,
-                      ...usageDays.map((d) => Number(d.cost_usd)),
-                    )}
-                    value={Number(day.cost_usd)}
-                  />
-                  <span>${Number(day.cost_usd).toFixed(4)}</span>
-                </div>
-              ))}
-              <p className="helper">
-                실제 청구 대사는 운영 계정과 모델 검증 이후 진행합니다.
-              </p>
-            </div>
           )}
         </Dialog>
       )}

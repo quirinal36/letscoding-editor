@@ -22,9 +22,7 @@ test("header title edits update the explorer and persist without navigation", as
   await expect(root).toHaveText("새 게임 이름");
   await title.press("Enter");
   await expect(title).toHaveValue("새 게임 이름");
-  await expect(
-    page.getByText("이 기기에 저장됨", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("저장됨", { exact: true })).toBeVisible();
   await page.reload();
   await page
     .locator(".project-list > div > button:first-child")
@@ -151,9 +149,7 @@ test("project → edit → automatic AI changes → preview → ZIP verification
     page.getByRole("heading", { name: "저장 테스트", exact: true }),
   ).toBeVisible();
   await page.keyboard.press("ControlOrMeta+s");
-  await expect(
-    page.getByText("이 기기에 저장됨", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("저장됨", { exact: true })).toBeVisible();
   await page.getByText("버튼 색을 파랗게 바꿔줘", { exact: true }).click();
   await expect(
     page.locator(".chat-messages").getByRole("status"),
@@ -170,7 +166,9 @@ test("project → edit → automatic AI changes → preview → ZIP verification
     .getByRole("button", { name: "클릭해서 +1", exact: true })
     .click();
   await expect(preview.locator("#score")).toHaveText("1");
-  await page.getByRole("button", { name: "배포하기", exact: true }).click();
+  await page
+    .getByRole("button", { name: "라운지에 게시하기", exact: true })
+    .click();
   await page
     .getByRole("textbox", { name: "설명", exact: true })
     .fill("비공개 배포 설정 유지");
@@ -179,7 +177,7 @@ test("project → edit → automatic AI changes → preview → ZIP verification
   await page.getByLabel("목록에 표시", { exact: true }).uncheck();
   await page.getByRole("button", { name: "배포 ZIP 검증" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
-  await page.getByRole("button", { name: "배포하기" }).click();
+  await page.getByRole("button", { name: "라운지에 게시하기" }).click();
   await expect(page.getByText("ZIP 검증 완료", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "닫기", exact: true }).click();
   await page.reload();
@@ -191,7 +189,9 @@ test("project → edit → automatic AI changes → preview → ZIP verification
   await expect(
     page.getByRole("treeitem", { name: "notes.md", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "배포하기", exact: true }).click();
+  await page
+    .getByRole("button", { name: "라운지에 게시하기", exact: true })
+    .click();
   await expect(
     page.getByRole("textbox", { name: "설명", exact: true }),
   ).toHaveValue("비공개 배포 설정 유지");
@@ -595,7 +595,7 @@ test("project home → blank creation → workspace → return, clone and delete
   ).toBeVisible();
   await expect(page.locator(".statusbar")).not.toBeVisible();
   await expect(
-    page.locator("header").getByRole("button", { name: "배포하기" }),
+    page.locator("header").getByRole("button", { name: "라운지에 게시하기" }),
   ).not.toBeVisible();
   expect(
     await page.evaluate(
@@ -758,7 +758,9 @@ test("preview console navigation and a separate window retain relative assets an
     "allow-scripts",
   );
   await popup.close();
-  await page.getByRole("button", { name: "배포하기", exact: true }).click();
+  await page
+    .getByRole("button", { name: "라운지에 게시하기", exact: true })
+    .click();
   const accessibility = await new AxeBuilder({ page })
     .include("dialog")
     .withTags(["wcag2a", "wcag2aa"])
@@ -772,6 +774,89 @@ test("preview console navigation and a separate window retain relative assets an
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(
-    page.getByRole("button", { name: "배포하기", exact: true }),
+    page.getByRole("button", { name: "라운지에 게시하기", exact: true }),
   ).toBeFocused();
+});
+
+test("lounge prompt picker fills the draft without sending and dismisses accessibly", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .locator(".project-list > div > button:first-child")
+    .first()
+    .click();
+  const picker = page.getByRole("button", {
+    name: "프롬프트 목록",
+    exact: true,
+  });
+  const popup = page.getByRole("group", { name: "라운지 프롬프트" });
+  const input = page.getByRole("textbox", { name: "AI에게 보낼 메시지" });
+  const messages = await page.locator(".chat-messages article").count();
+  const clip = page.getByRole("button", { name: "이미지 첨부", exact: true });
+  expect((await picker.boundingBox())!.x).toBeLessThan(
+    (await clip.boundingBox())!.x,
+  );
+  await picker.click();
+  await expect(popup.getByRole("button")).toHaveCount(4);
+  await page.screenshot({ path: "test-results/lounge-prompt-menu.png" });
+  const box = (await popup.boundingBox())!;
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await popup
+    .getByRole("button", {
+      name: "렛츠코딩 라운지 랭킹 시스템 구현해줘.",
+      exact: true,
+    })
+    .click();
+  await expect(input).toHaveValue("렛츠코딩 라운지 랭킹 시스템 구현해줘.");
+  await expect(input).toBeFocused();
+  await expect(popup).toBeHidden();
+  await expect(page.locator(".chat-messages article")).toHaveCount(messages);
+  await input.fill("기존 요청");
+  await picker.click();
+  await popup
+    .getByRole("button", {
+      name: "렛츠코딩 라운지 배포 전용 압축 파일 만들어줘.",
+      exact: true,
+    })
+    .click();
+  await expect(input).toHaveValue(
+    "기존 요청\n렛츠코딩 라운지 배포 전용 압축 파일 만들어줘.",
+  );
+  await picker.focus();
+  await picker.press("Enter");
+  await picker.press("Tab");
+  await expect(popup.getByRole("button").first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(popup).toBeHidden();
+  await expect(picker).toBeFocused();
+  await picker.click();
+  await page.getByRole("textbox", { name: "프로젝트 이름 편집" }).click();
+  await expect(popup).toBeHidden();
+  await expect(
+    page.locator("header").getByRole("button", { name: "GitHub", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "저장 메뉴", exact: true }),
+  ).toHaveCount(0);
+  const github = page
+    .getByRole("complementary", { name: "작업 공간 도구" })
+    .getByRole("button", { name: "GitHub", exact: true });
+  await expect(github).toBeVisible();
+  const chat = page.getByRole("button", { name: "AI 채팅 접기/펼치기" });
+  expect((await github.boundingBox())!.y).toBeGreaterThan(
+    (await chat.boundingBox())!.y,
+  );
+  await github.click();
+  await expect(page.getByRole("dialog", { name: "GitHub 연동" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(github).toBeFocused();
+  const account = page.locator(".account-button");
+  await account.hover();
+  await expect(account).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(account).toHaveCSS("border-top-width", "0px");
+  await expect(account).toHaveCSS("color", "rgb(165, 243, 207)");
+  await expect(
+    page.locator("header").getByRole("button", { name: "라운지에 게시하기" }),
+  ).toBeVisible();
 });

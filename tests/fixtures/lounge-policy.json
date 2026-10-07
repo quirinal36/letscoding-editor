@@ -1,0 +1,41 @@
+{
+  "policyId": "lounge-deploy",
+  "version": "2026-08-27.1",
+  "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "active": true,
+  "policy": {
+    "zip": {
+      "maxCompressedBytes": 31457280,
+      "maxUncompressedBytes": 104857600,
+      "maxFiles": 500,
+      "maxEntries": 500,
+      "maxPathLength": 180
+    },
+    "files": {
+      "allowedExtensions": [
+        ".html",
+        ".htm",
+        ".css",
+        ".js",
+        ".mjs",
+        ".json",
+        ".md",
+        ".txt",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".webp",
+        ".ico",
+        ".mp3",
+        ".wav",
+        ".ogg",
+        ".mp4",
+        ".woff",
+        ".woff2",
+        ".ttf"
+      ]
+    }
+  }
+}

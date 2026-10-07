@@ -416,19 +416,23 @@ test("cloud usage, cancelled uploads and failed saves recover without losing edi
     .locator(".project-list > div > button:first-child")
     .first()
     .click();
+  const remaining = page.getByRole("button", {
+    name: "이번 달 남은 AI 사용량",
+    exact: true,
+  });
+  await remaining.hover();
+  await expect(page.getByRole("tooltip")).toHaveText("조회 실패");
   await expect(
-    page.getByRole("button", { name: "AI 사용량 확인 실패" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("AI 예산 미설정", { exact: true }),
-  ).not.toBeVisible();
+    page.getByRole("button", { name: "사용량 보기", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.locator(".statusbar")).not.toContainText("AI 사용량");
   usageFails = false;
-  await page.getByRole("button", { name: "AI 사용량 확인 실패" }).click();
-  await expect(page.getByText(/오늘 사용 \$0.0000/)).toBeVisible();
-  await page.getByRole("button", { name: "닫기", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "AI $0.000 / $1.00", exact: true }),
-  ).toBeVisible();
+  await remaining.click();
+  await expect(remaining.locator(".usage-arc")).toHaveAttribute(
+    "stroke-dasharray",
+    "100 100",
+  );
+  await expect(page.getByRole("dialog")).not.toBeVisible();
 
   await page
     .getByRole("treeitem", { name: "notes.md", exact: true })
@@ -449,7 +453,7 @@ test("cloud usage, cancelled uploads and failed saves recover without losing edi
   await page
     .getByRole("button", { name: "저장 다시 시도", exact: true })
     .click();
-  await expect(page.getByText("서버에 저장됨", { exact: true })).toBeVisible();
+  await expect(page.getByText("저장됨", { exact: true })).toBeVisible();
   expect(project.files["notes.md"].content).toContain("보존할 내용");
   await page.getByLabel("AI에게 보낼 메시지").fill("시험 요청");
   await page.getByRole("button", { name: "메시지 보내기" }).click();
@@ -509,7 +513,7 @@ test("cloud usage, cancelled uploads and failed saves recover without losing edi
   await expect(
     page.getByRole("treeitem", { name: "large.txt", exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("서버에 저장됨", { exact: true })).toBeVisible();
+  await expect(page.getByText("저장됨", { exact: true })).toBeVisible();
   expect(uploadBodies.at(-1)?.toString()).toBe(largeText);
 });
 
@@ -679,9 +683,34 @@ test("chat renders Markdown safely and hides generated code and tool details", a
     "게임 방식:",
     '"CSS 사과 아이콘"',
   ]);
-  await expect(
-    page.getByRole("button", { name: "이번 달 남은 AI 사용량", exact: true }),
-  ).toHaveText(/15% 남음 \(\d+일 후 초기화\)/);
+  const remaining = page.getByRole("button", {
+    name: "이번 달 남은 AI 사용량",
+    exact: true,
+  });
+  const tooltip = page.getByRole("tooltip");
+  await expect(remaining.locator(".usage-arc")).toHaveAttribute(
+    "stroke-dasharray",
+    "15 100",
+  );
+  await expect(tooltip).not.toBeVisible();
+  await remaining.hover();
+  await expect(tooltip).toHaveText(/15% 남음 \(\d+일 후 초기화\)/);
+  await expect(tooltip).toBeVisible();
+  await page
+    .getByRole("region", { name: "AI 채팅", exact: true })
+    .screenshot({ path: "test-results/donut-usage.png" });
+  await page.locator(".topbar").hover();
+  await expect(tooltip).not.toBeVisible();
+  await remaining.focus();
+  await expect(tooltip).toBeVisible();
+  await remaining.press("Escape");
+  await expect(tooltip).not.toBeVisible();
+  await remaining.click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(remaining.locator(".usage-arc")).toHaveAttribute(
+    "stroke-dasharray",
+    "15 100",
+  );
   await expect(message.getByRole("link", { name: "문서" })).toHaveAttribute(
     "href",
     "https://example.com",
@@ -703,6 +732,7 @@ test("a game request automatically commits all files and opens the preview; fail
   project.threads[0].autoApply = false;
   let failed = false,
     manual = false,
+    partial = false,
     approvals = 0;
   const files = [
     {
@@ -737,8 +767,14 @@ test("a game request automatically commits all files and opens the preview; fail
         role: "assistant" as const,
         text: failed
           ? ""
-          : "게임을 만들었어요. 미리보기에서 시작을 눌러보세요.",
-        status: failed ? ("error" as const) : ("complete" as const),
+          : manual || partial
+            ? "여기까지 완성한 변경안: 게임 화면. 다음은 체력 회복 연결입니다. 이어서 진행해줘라고 요청하세요."
+            : "게임을 만들었어요. 미리보기에서 시작을 눌러보세요.",
+        status: failed
+          ? ("error" as const)
+          : manual || partial
+            ? ("partial" as const)
+            : ("complete" as const),
         proposals: files.map((file) => ({
           ...file,
           id: crypto.randomUUID(),
@@ -947,4 +983,322 @@ test("a game request automatically commits all files and opens the preview; fail
   await expect(page.getByText("수정됨", { exact: true })).toHaveCount(8);
   expect(approvals).toBe(2);
   expect(project.revision).toBe(2);
+  manual = false;
+  partial = true;
+  files[2].content = "body { background: rgb(30, 20, 10); color: white; }";
+  await page.getByLabel("AI에게 보낼 메시지").fill("체력 회복 아이템 만들어줘");
+  await page.getByRole("button", { name: "메시지 보내기" }).click();
+  await expect(
+    page.getByText("완성된 부분 반영됨", { exact: true }),
+  ).toHaveCount(2);
+  await expect(page.locator(".message.assistant").last()).toContainText(
+    "다음은 체력 회복 연결",
+  );
+  await expect(preview.locator("body")).toHaveCSS(
+    "background-color",
+    "rgb(30, 20, 10)",
+  );
+  expect(approvals).toBe(3);
+  expect(project.revision).toBe(3);
+  await page.reload();
+  await page
+    .locator(".project-list > div > button:first-child")
+    .first()
+    .click();
+  await expect(
+    page.getByText("완성된 부분 반영됨", { exact: true }),
+  ).toHaveCount(2);
+  await expect(preview.locator("body")).toHaveCSS(
+    "background-color",
+    "rgb(30, 20, 10)",
+  );
+});
+
+test("project creation ignores repeated submissions while pending and recovers after failure", async ({
+  page,
+}) => {
+  const { createProject } = await import("../../src/lib/templates");
+  const project = createProject("blank", "한 번만 생성");
+  let calls = 0;
+  let release: () => void = () => {};
+  let started: () => void = () => {};
+  let requestStarted = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(
+    "https://editor-auth.test/auth/v1/token?grant_type=password",
+    (route) => route.fulfill({ json: session() }),
+  );
+  await page.route("**/api/editor", async (route) => {
+    const body = route.request().postDataJSON();
+    if (body.action === "create") {
+      calls++;
+      started();
+      await pending;
+      return calls === 1
+        ? route.fulfill({ status: 503, json: { error: "생성 요청 실패" } })
+        : route.fulfill({ json: project });
+    }
+    if (body.action === "list")
+      return route.fulfill({ json: calls > 1 ? [project] : [] });
+    if (body.action === "get") return route.fulfill({ json: project });
+    return route.fallback();
+  });
+  await page.goto("/");
+  await page.getByLabel("이메일", { exact: true }).fill(email);
+  await page.getByLabel("비밀번호", { exact: true }).fill(password);
+  await page.getByLabel("비밀번호", { exact: true }).press("Enter");
+  await page
+    .getByRole("button", { name: "새 프로젝트 만들기", exact: true })
+    .click();
+  await page.getByLabel("프로젝트 이름", { exact: true }).fill(project.title);
+  const submit = async () =>
+    page.locator("#project-title").evaluate((input) => {
+      const form = (input as HTMLInputElement).form!;
+      for (let i = 0; i < 3; i++) form.requestSubmit();
+    });
+  await submit();
+  await requestStarted;
+  await expect(
+    page.getByRole("button", { name: "처리 중…", exact: true }),
+  ).toBeDisabled();
+  expect(calls).toBe(1);
+  release();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "생성 요청 실패",
+  );
+  await expect(
+    page.getByRole("button", { name: "프로젝트 만들기", exact: true }),
+  ).toBeEnabled();
+  requestStarted = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await submit();
+  await requestStarted;
+  expect(calls).toBe(2);
+  release();
+  await expect(page.getByRole("tree")).toBeVisible();
+  expect(calls).toBe(2);
+});
+
+test("chat opens at the latest message after reopening, navigation and reload", async ({
+  page,
+}) => {
+  const { createProject } = await import("../../src/lib/templates");
+  const project = createProject("blank", "스크롤 검증");
+  project.threads[0].messages = Array.from({ length: 40 }, (_, index) => ({
+    id: crypto.randomUUID(),
+    role: "assistant" as const,
+    status: "complete" as const,
+    proposals: [],
+    text: `메시지 ${index + 1}\n\n기존 작업 내역입니다.\n\n완료한 작업을 확인하세요.`,
+  }));
+  await page.route(
+    "https://editor-auth.test/auth/v1/token?grant_type=password",
+    (route) => route.fulfill({ json: session() }),
+  );
+  await page.route("**/api/editor", (route) => {
+    const { action } = route.request().postDataJSON();
+    return route.fulfill({
+      json:
+        action === "list"
+          ? [project]
+          : ["get", "save"].includes(action)
+            ? project
+            : action === "usage"
+              ? usage
+              : action === "session"
+                ? { id: userId, role: "student" }
+                : [],
+    });
+  });
+  await page.goto("/");
+  await page.getByLabel("이메일", { exact: true }).fill(email);
+  await page.getByLabel("비밀번호", { exact: true }).fill(password);
+  await page.getByLabel("비밀번호", { exact: true }).press("Enter");
+  const open = async () =>
+    page.locator(".project-list > div > button:first-child").first().click();
+  const messages = page.locator(".chat-messages");
+  const bottom = async () => {
+    await expect(page.locator(".message.assistant")).toHaveCount(40);
+    await expect(page.locator(".message.assistant").last()).toContainText(
+      "메시지 40",
+    );
+    await expect
+      .poll(() =>
+        messages.evaluate(
+          (node) => node.scrollHeight - node.clientHeight - node.scrollTop,
+        ),
+      )
+      .toBeLessThan(2);
+    expect(
+      await messages.evaluate((node) => node.scrollHeight > node.clientHeight),
+    ).toBe(true);
+  };
+  await open();
+  await bottom();
+  await messages.evaluate(async (node) => {
+    node.scrollTop = 0;
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+    node
+      .querySelector(".message-markdown")!
+      .append(document.createTextNode("지연된 표시 내용"));
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => resolve()),
+    );
+  });
+  expect(await messages.evaluate((node) => node.scrollTop)).toBe(0);
+  await page.getByRole("button", { name: "AI 패널 접기", exact: true }).click();
+  await expect(messages).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "AI 채팅 접기/펼치기", exact: true })
+    .click();
+  await bottom();
+  await page
+    .getByRole("link", { name: "Let's Coding Studio 메인페이지", exact: true })
+    .click();
+  await open();
+  await bottom();
+  await page.reload();
+  await open();
+  await bottom();
+});
+
+test("Lounge ZIP prompt downloads verified bytes and blocks failed or stale validation", async ({
+  page,
+}) => {
+  const { createProject } = await import("../../src/lib/templates");
+  const { createArtifact } = await import("../../src/lib/artifact");
+  const { loungePrompts } = await import("../../src/lib/lounge-prompts");
+  const { createHash } = await import("node:crypto");
+  const { readFile } = await import("node:fs/promises");
+  const project = createProject("blank", "라운지 ZIP 검증");
+  const artifact = await createArtifact(project.files);
+  let mode = "verified",
+    downloads = 0,
+    requests = 0;
+  page.on("download", () => downloads++);
+  await page.route(
+    "https://editor-auth.test/auth/v1/token?grant_type=password",
+    (route) => route.fulfill({ json: session() }),
+  );
+  await page.route("**/api/editor", async (route) => {
+    const body = route.request().postDataJSON();
+    if (body.action === "chat") {
+      requests++;
+      expect([loungePrompts[1], loungePrompts[3]]).toContain(body.text);
+      const message = {
+        id: crypto.randomUUID(),
+        role: "assistant" as const,
+        status: mode === "error" ? ("error" as const) : ("complete" as const),
+        proposals: [],
+        text:
+          mode === "error"
+            ? "POLICY_SERVICE_UNAVAILABLE · 정책을 조회하지 못했습니다."
+            : `검증 완료 ${requests}`,
+      };
+      project.threads[0].messages.push(
+        {
+          id: crypto.randomUUID(),
+          role: "user",
+          text: body.text,
+          status: "complete",
+          proposals: [],
+        },
+        message,
+      );
+      return route.fulfill({
+        contentType: "application/x-ndjson",
+        body:
+          JSON.stringify({
+            type: "done",
+            message,
+            artifact:
+              mode === "error" || body.text === loungePrompts[3]
+                ? undefined
+                : {
+                    sha256: mode === "stale" ? "0".repeat(64) : artifact.sha256,
+                    policyVersion: "2026-08-27.1",
+                  },
+          }) + "\n",
+      });
+    }
+    return route.fulfill({
+      json:
+        body.action === "list"
+          ? [project]
+          : ["get", "save"].includes(body.action)
+            ? project
+            : body.action === "usage"
+              ? usage
+              : body.action === "session"
+                ? { id: userId, role: "student" }
+                : [],
+    });
+  });
+  await page.goto("/");
+  await page.getByLabel("이메일", { exact: true }).fill(email);
+  await page.getByLabel("비밀번호", { exact: true }).fill(password);
+  await page.getByLabel("비밀번호", { exact: true }).press("Enter");
+  await page
+    .locator(".project-list > div > button:first-child")
+    .first()
+    .click();
+  await page
+    .getByRole("button", { name: "프롬프트 목록", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: loungePrompts[1], exact: true })
+    .click();
+  const download = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "메시지 보내기", exact: true })
+    .click();
+  const zip = await download;
+  expect(zip.suggestedFilename()).toBe("라운지_ZIP_검증.zip");
+  expect(
+    createHash("sha256")
+      .update(await readFile((await zip.path())!))
+      .digest("hex"),
+  ).toBe(artifact.sha256);
+  await expect(
+    page.getByText("라운지 정책으로 검증한 ZIP을 내려받았습니다.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  mode = "stale";
+  await page.getByLabel("AI에게 보낼 메시지").fill(loungePrompts[1]);
+  await page
+    .getByRole("button", { name: "메시지 보내기", exact: true })
+    .click();
+  await expect(page.locator(".error-banner")).toContainText(
+    "검증 후 파일이 변경되었거나 변경안이 아직 반영되지 않았습니다.",
+  );
+  expect(downloads).toBe(1);
+  mode = "error";
+  await page.getByLabel("AI에게 보낼 메시지").fill(loungePrompts[1]);
+  await page
+    .getByRole("button", { name: "메시지 보내기", exact: true })
+    .click();
+  await expect(page.locator(".message.assistant").last()).toContainText(
+    "POLICY_SERVICE_UNAVAILABLE",
+  );
+  expect(downloads).toBe(1);
+  mode = "verified";
+  await page.getByLabel("AI에게 보낼 메시지").fill(loungePrompts[3]);
+  await page
+    .getByRole("button", { name: "메시지 보내기", exact: true })
+    .click();
+  await expect(page.locator(".message.assistant").last()).toContainText(
+    "검증 완료 4",
+  );
+  expect(downloads).toBe(1);
 });

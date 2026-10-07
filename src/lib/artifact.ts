@@ -27,7 +27,11 @@ export function validateArtifact(files: Project["files"]) {
       ];
       for (const pattern of patterns)
         for (const match of file.content.matchAll(pattern))
-          if (match[1] !== "/" && !match[1].startsWith("/sdk/"))
+          if (
+            match[1] !== "/" &&
+            !match[1].startsWith("/sdk/") &&
+            !/^\/api\/me\?projectId=/.test(match[1])
+          )
             throw new Error(
               `${path}: 루트 절대 경로 ${match[1]}를 상대 경로로 바꾸세요.`,
             );
@@ -66,10 +70,13 @@ export async function createArtifact(files: Project["files"]) {
     policyVersion: POLICY_VERSION,
   };
 }
-export async function importArtifact(bytes: ArrayBuffer) {
+export async function importArtifact(
+  bytes: ArrayBuffer,
+  maxEntries = LIMITS.files + 100,
+) {
   if (bytes.byteLength > LIMITS.zip)
     throw new Error("ZIP 파일은 30MB 이하만 가능합니다.");
-  inspectZipDirectory(bytes);
+  inspectZipDirectory(bytes, maxEntries);
   const zip = await JSZip.loadAsync(bytes, { checkCRC32: false });
   const files: Project["files"] = {};
   let actual = 0,
@@ -135,7 +142,7 @@ export function mimeFor(path: string) {
   );
 }
 
-function inspectZipDirectory(bytes: ArrayBuffer) {
+function inspectZipDirectory(bytes: ArrayBuffer, maxEntries: number) {
   const data = new DataView(bytes);
   let end = -1;
   for (
@@ -164,7 +171,7 @@ function inspectZipDirectory(bytes: ArrayBuffer) {
     start + length !== end
   )
     throw new Error("분할 ZIP 또는 ZIP64는 지원하지 않습니다.");
-  if (count > LIMITS.files + 100)
+  if (count > Math.min(LIMITS.files + 100, maxEntries))
     throw new Error("ZIP 파일 수가 한도를 초과했습니다.");
   const names = new Set<string>();
   let offset = start,

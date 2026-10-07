@@ -192,10 +192,12 @@ export function applyProposals(
 ): Project {
   if (
     !proposals.length ||
-    proposals.length > 10 ||
+    proposals.length > LIMITS.files ||
     new Set(proposals.map((p) => p.path)).size !== proposals.length
   )
-    throw new Error("한 작업에는 서로 다른 파일 1~10개를 변경할 수 있습니다.");
+    throw new Error(
+      `한 작업에는 서로 다른 파일 1~${LIMITS.files}개를 변경할 수 있습니다.`,
+    );
   let files = project.files;
   for (const proposal of proposals) {
     if (!["create", "write"].includes(proposal.operation))

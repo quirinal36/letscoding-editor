@@ -1,3 +1,5 @@
+import loungePolicyFixture from "./fixtures/lounge-policy.json";
+import { loungePrompts } from "../src/lib/lounge-prompts";
 import {
   requestRefusal,
   replaceExact,
@@ -555,12 +557,49 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
   let scenario = "tools",
     remaining = 2,
     providerCalls = 0,
-    lastMaxOutput = 0;
+    lastMaxOutput = 0,
+    largeReadCount = 0,
+    checkpointCall = 0;
+  let expectedLounge: "ranking" | "name" | undefined,
+    loungeFailure = false;
   try {
     Object.assign(process.env, settings);
     globalThis.fetch = async (input, init) => {
       const req = new Request(input, init);
       const url = new URL(req.url);
+      if (url.hostname === "lounge-deploy-mcp.letscoding.kr") {
+        const body = await req.json();
+        const { name, arguments: args } = body.params;
+        if (loungeFailure) return new Response("unavailable", { status: 503 });
+        let data: unknown = loungePolicyFixture;
+        if (name === "analyze_project") {
+          assert.ok(
+            args.files.every(
+              (f: object) => !Object.keys(f).includes("content"),
+            ),
+          );
+          data = {
+            policyVersion: loungePolicyFixture.version,
+            result: { pass: true, build: { command: null }, findings: [] },
+          };
+        } else if (name === "validate_artifact") {
+          assert.ok(
+            args.manifest.files.every(
+              (f: object) => !Object.keys(f).includes("content"),
+            ),
+          );
+          data = {
+            policyVersion: loungePolicyFixture.version,
+            decision: "PASS",
+            pass: true,
+          };
+        } else assert.equal(name, "get_policy");
+        return Response.json({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: { structuredContent: { ok: true, data } },
+        });
+      }
       if (url.pathname === "/api/v1/models")
         return Response.json({
           data: [
@@ -584,6 +623,19 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
         providerCalls++;
         assert.ok(reserved);
         const body = await req.json();
+        if (expectedLounge) {
+          const instructions = body.messages.find(
+            (m: { role: string }) => m.role === "system",
+          ).content;
+          assert.match(instructions, /라운지 공식 연동 지침/);
+          assert.match(
+            instructions,
+            expectedLounge === "ranking"
+              ? /LetscodingRanking.submitScore/
+              : /\/api\/me\?projectId=/,
+          );
+          assert.match(instructions, /textContent/);
+        }
         lastMaxOutput = body.max_tokens;
         assert.ok(lastMaxOutput > 0 && lastMaxOutput <= 128000);
         assert.equal(body.model, "openai/gpt-6-luna");
@@ -596,7 +648,130 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
               t.function.name === "write_files",
           ),
         );
+        if (scenario.startsWith("checkpoint-")) {
+          checkpointCall++;
+          if (scenario === "checkpoint-network" && checkpointCall === 3)
+            throw new TypeError("Simulated provider disconnect");
+          if (
+            checkpointCall <= 2 ||
+            ([
+              "checkpoint-invalid",
+              "checkpoint-failed-batch",
+              "checkpoint-recovered",
+            ].includes(scenario) &&
+              checkpointCall === 3) ||
+            (scenario === "checkpoint-recovered" && checkpointCall === 4)
+          ) {
+            const editing = checkpointCall === 2 || checkpointCall === 4;
+            const args = editing
+              ? {
+                  edits: [
+                    {
+                      path: "greeting.txt",
+                      before: checkpointCall === 4 ? "improved" : "base",
+                      after: checkpointCall === 4 ? "finished" : "improved",
+                    },
+                  ],
+                  projectDocument: "# Test\nRecovery item ready",
+                  summary: "체력 회복 아이템 표시 완성",
+                  nextStep:
+                    checkpointCall === 4 ? "" : "아이템 획득 시 체력 회복 연결",
+                }
+              : {
+                  files: [
+                    {
+                      path: "PROJECT.md",
+                      content: "# Test\nRecovery item base ready",
+                    },
+                    { path: "greeting.txt", content: "base" },
+                    ...(checkpointCall === 3
+                      ? [{ path: ".env", content: "invalid" }]
+                      : []),
+                  ],
+                  summary: "체력 회복 아이템 기본 화면 완성",
+                  nextStep: "아이템 표시 개선",
+                };
+            const chunk = {
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: `checkpoint-${checkpointCall}`,
+                        type: "function",
+                        function: {
+                          name: editing ? "edit_files" : "write_files",
+                          arguments:
+                            scenario === "checkpoint-invalid" &&
+                            checkpointCall === 3
+                              ? JSON.stringify(args).slice(0, -8)
+                              : JSON.stringify(args),
+                        },
+                      },
+                    ],
+                  },
+                  finish_reason: "tool_calls",
+                },
+              ],
+              usage: {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: 0,
+              },
+            };
+            return new Response(
+              `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`,
+              {
+                headers: { "content-type": "text/event-stream" },
+              },
+            );
+          }
+        }
+        if (scenario === "large-edit" && largeReadCount < 4) {
+          const path = ["script.js", "style.css", "index.html", "extra.js"][
+            largeReadCount++
+          ];
+          const chunk = {
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: `read-${largeReadCount}`,
+                      type: "function",
+                      function: {
+                        name: "read_file",
+                        arguments: JSON.stringify({ path }),
+                      },
+                    },
+                  ],
+                },
+                finish_reason: "tool_calls",
+              },
+            ],
+            usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+          };
+          return new Response(
+            `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`,
+            {
+              headers: { "content-type": "text/event-stream" },
+            },
+          );
+        }
         if (!sent) {
+          if (scenario === "large-edit") {
+            const results = body.messages.filter(
+              (message: { role: string }) => message.role === "tool",
+            );
+            assert.equal(results.length, 4);
+            const result = JSON.parse(results[0].content);
+            assert.equal(result.truncated, false);
+            assert.equal(result.content, project.files["script.js"].content);
+          }
           sent = true;
           let args = JSON.stringify({
             files: [
@@ -604,6 +779,25 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
               { path: "greeting.txt", content: "hidden generated code" },
             ],
           });
+          if (scenario === "large-edit")
+            args = JSON.stringify({
+              edits: Array.from({ length: 12 }, (_, i) => ({
+                path: "script.js",
+                before: `const item${i} = 0;`,
+                after: `const item${i} = 1;`,
+              })),
+              projectDocument: "# Test\nAdded recovery items",
+            });
+          if (scenario === "large-create")
+            args = JSON.stringify({
+              files: [
+                { path: "PROJECT.md", content: "# Test\nCreated files" },
+                ...Array.from({ length: 12 }, (_, i) => ({
+                  path: `item${i}.js`,
+                  content: `const item${i} = 0;`,
+                })),
+              ],
+            });
           if (scenario === "tool-error")
             args = JSON.stringify({
               files: [{ path: "greeting.txt", content: "failed code" }],
@@ -623,7 +817,10 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
                         id: "write-test",
                         type: "function",
                         function: {
-                          name: "write_files",
+                          name:
+                            scenario === "large-edit"
+                              ? "edit_files"
+                              : "write_files",
                           arguments: args.slice(0, 20),
                         },
                       },
@@ -676,14 +873,15 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
                 delta: {
                   role: "assistant",
                   reasoning: "비공개 준비 내용",
-                  content:
-                    scenario === "tools"
-                      ? "테스트 응답입니다."
-                      : scenario === "false-completion"
-                        ? "투호 게임을 구현했습니다."
-                        : scenario === "false-progress"
-                          ? "아직 작업 중입니다. 잠시 기다려주세요."
-                          : "",
+                  content: ["tools", "large-edit", "large-create"].includes(
+                    scenario,
+                  )
+                    ? "테스트 응답입니다."
+                    : scenario === "false-completion"
+                      ? "투호 게임을 구현했습니다."
+                      : scenario === "false-progress"
+                        ? "아직 작업 중입니다. 잠시 기다려주세요."
+                        : "",
                 },
                 finish_reason: null,
               },
@@ -696,7 +894,11 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
               {
                 index: 0,
                 delta: {},
-                finish_reason: scenario === "length" ? "length" : "stop",
+                finish_reason: ["length", "checkpoint-length"].includes(
+                  scenario,
+                )
+                  ? "length"
+                  : "stop",
               },
             ],
             usage: {
@@ -737,9 +939,18 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
         ]);
       if (url.pathname === "/rest/v1/rpc/editor_settle_usage") {
         const body = await req.json();
-        assert.equal(body.p_prompt, 100);
-        assert.equal(body.p_completion, 20);
-        assert.ok(Math.abs(body.p_cost - 0.00002) < 1e-10);
+        if (scenario === "checkpoint-network") {
+          assert.equal(body.p_prompt, 0);
+          assert.equal(body.p_completion, 0);
+          assert.ok(
+            body.p_cost > 0,
+            "unknown provider cost keeps the reservation",
+          );
+        } else {
+          assert.equal(body.p_prompt, 100);
+          assert.equal(body.p_completion, 20);
+          assert.ok(Math.abs(body.p_cost - 0.00002) < 1e-10);
+        }
         settled = true;
         return Response.json(null);
       }
@@ -831,6 +1042,134 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
       }
     }
 
+    for (scenario of ["large-edit", "large-create"]) {
+      const originalFiles = structuredClone(project.files);
+      project.files["script.js"] = textFile(
+        "// preserved game logic\n".repeat(2200) +
+          Array.from({ length: 12 }, (_, i) => `const item${i} = 0;`).join(
+            "\n",
+          ),
+      );
+      project.files["extra.js"] = textFile("// extra game logic");
+      sent = false;
+      largeReadCount = 0;
+      const response = await chat(
+        { id: crypto.randomUUID(), role: "student" },
+        project,
+        {
+          projectId: project.id,
+          threadId: project.threads[0].id,
+          text: "체력 회복 아이템을 추가해줘",
+          model: "openai/gpt-6-luna",
+          images: [],
+          previewErrors: [],
+        },
+        new Request("https://luna-test.example.test/api/editor"),
+      );
+      const events = (await response.text())
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      const done = events.find((event) => event.type === "done");
+      assert.equal(done.message.status, "complete", JSON.stringify(events));
+      assert.equal(
+        done.message.proposals.length,
+        scenario === "large-edit" ? 2 : 13,
+      );
+      if (scenario === "large-edit") {
+        const code = done.message.proposals.find(
+          (proposal: { path: string }) => proposal.path === "script.js",
+        );
+        assert.ok(
+          code.content.startsWith("// preserved game logic\n".repeat(2200)),
+        );
+        assert.ok(code.content.includes("const item11 = 1;"));
+      }
+      project.files = originalFiles;
+    }
+
+    for (scenario of [
+      "checkpoint-length",
+      "checkpoint-invalid",
+      "checkpoint-failed-batch",
+      "checkpoint-network",
+      "checkpoint-stop",
+      "checkpoint-recovered",
+    ]) {
+      checkpointCall = 0;
+      const response = await chat(
+        { id: crypto.randomUUID(), role: "student" },
+        project,
+        {
+          projectId: project.id,
+          threadId: project.threads[0].id,
+          text: "체력 회복 아이템 만들어줘",
+          model: "openai/gpt-6-luna",
+          images: [],
+          previewErrors: [],
+        },
+        new Request("https://luna-test.example.test/api/editor"),
+      );
+      const events = (await response.text())
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      const done = events.find((event) => event.type === "done");
+      assert.equal(
+        done.message.status,
+        scenario === "checkpoint-recovered" ? "complete" : "partial",
+        JSON.stringify(events),
+      );
+      assert.equal(
+        done.message.proposals.length,
+        2,
+        "repeated paths merge; failed batch is excluded",
+      );
+      if (scenario !== "checkpoint-recovered") {
+        assert.match(done.message.text, /체력 회복 아이템 표시 완성/);
+        assert.match(
+          done.message.text,
+          /다음 작업: 아이템 획득 시 체력 회복 연결/,
+        );
+      }
+      assert.ok(!events.some((event) => event.type === "error"), scenario);
+      const applied = applyProposals(project, done.message.proposals);
+      assert.equal(
+        applied.files["greeting.txt"].content,
+        scenario === "checkpoint-recovered" ? "finished" : "improved",
+      );
+      assert.equal(
+        done.message.proposals.find(
+          (p: { path: string }) => p.path === "greeting.txt",
+        ).operation,
+        "create",
+      );
+      assert.ok(!applied.files[".env"]);
+      assert.ok(
+        !project.files["greeting.txt"],
+        "preparation doesn't mutate original files",
+      );
+    }
+
+    scenario = "empty";
+    sent = true;
+    for (expectedLounge of ["ranking", "name"] as const) {
+      const guided = await chat(
+        { id: crypto.randomUUID(), role: "student" },
+        project,
+        {
+          projectId: project.id,
+          threadId: project.threads[0].id,
+          text: loungePrompts[expectedLounge === "ranking" ? 0 : 2],
+          model: "openai/gpt-6-luna",
+          images: [],
+          previewErrors: [],
+        },
+        new Request("https://luna-test.example.test/api/editor"),
+      );
+      await guided.text();
+    }
+    expectedLounge = undefined;
     scenario = "empty";
     remaining = 0.1;
     sent = true;
@@ -869,6 +1208,50 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
       /예산/,
     );
     assert.equal(providerCalls, before, "exhausted budget makes no paid call");
+    process.env.EDITOR_AI_ENABLED = "false";
+    for (const text of [loungePrompts[1], loungePrompts[3]]) {
+      const result = await chat(
+        { id: crypto.randomUUID(), role: "student" },
+        project,
+        {
+          projectId: project.id,
+          threadId: project.threads[0].id,
+          text,
+          model: "",
+          images: [],
+          previewErrors: [],
+        },
+        new Request("https://luna-test.example.test/api/editor"),
+      );
+      const done = JSON.parse((await result.text()).trim());
+      assert.equal(done.message.status, "complete");
+      assert.match(done.message.text, /검증했습니다/);
+      assert.equal(Boolean(done.artifact), text === loungePrompts[1]);
+      assert.equal(
+        providerCalls,
+        before,
+        "ZIP/check don't call the paid model",
+      );
+    }
+    loungeFailure = true;
+    const failedZip = await chat(
+      { id: crypto.randomUUID(), role: "student" },
+      project,
+      {
+        projectId: project.id,
+        threadId: project.threads[0].id,
+        text: loungePrompts[1],
+        model: "",
+        images: [],
+        previewErrors: [],
+      },
+      new Request("https://luna-test.example.test/api/editor"),
+    );
+    const failedResult = JSON.parse((await failedZip.text()).trim());
+    assert.equal(failedResult.message.status, "error");
+    assert.equal(failedResult.artifact, undefined);
+    assert.match(failedResult.message.text, /503/);
+    assert.equal(providerCalls, before);
   } finally {
     globalThis.fetch = oldFetch;
     for (const key of Object.keys(settings)) {

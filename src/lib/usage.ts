@@ -1,6 +1,6 @@
 import type { Usage } from "./types";
 
-export function monthlyUsageLabel(usage: Usage | null, now: number) {
+export function monthlyUsagePercent(usage: Usage | null) {
   const limit = usage?.monthlyLimitUsd ?? 0;
   const remaining = Math.max(
     0,
@@ -8,8 +8,11 @@ export function monthlyUsageLabel(usage: Usage | null, now: number) {
       (usage?.monthCostUsd ?? 0) -
       (usage?.monthReservedUsd ?? usage?.reservedUsd ?? 0),
   );
-  const percent =
-    limit > 0 ? Math.min(100, Math.floor((remaining / limit) * 100)) : 0;
+  return limit > 0 ? Math.min(100, Math.floor((remaining / limit) * 100)) : 0;
+}
+
+export function monthlyUsageLabel(usage: Usage | null, now: number) {
+  const percent = monthlyUsagePercent(usage);
   const korea = new Date(now + 9 * 60 * 60 * 1000);
   const year = korea.getUTCFullYear(),
     month = korea.getUTCMonth();

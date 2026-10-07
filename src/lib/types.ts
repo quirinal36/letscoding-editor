@@ -22,7 +22,7 @@ export type ChatMessage = {
   text: string;
   proposals: Proposal[];
   tools?: { name: string; input: unknown; output: unknown }[];
-  status: "complete" | "interrupted" | "error";
+  status: "complete" | "partial" | "interrupted" | "error";
   images?: string[];
   selection?: string;
 };
