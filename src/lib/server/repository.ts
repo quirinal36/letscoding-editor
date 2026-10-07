@@ -1,7 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { positive } from "./config";
-import type { Project, ProjectFile, SessionUser } from "../types";
+import { positive, processRecordEnabled } from "./config";
+import type {
+  Checkpoint,
+  CheckpointDetail,
+  Project,
+  ProjectFile,
+  SaveSource,
+  SessionUser,
+} from "../types";
 import { validateFiles, assertStorageLimit, LIMITS } from "../vfs";
 export const uuid = z.string().uuid();
 export const fileSchema = z.object({
@@ -114,35 +121,7 @@ export async function get(user: SessionUser, id: string): Promise<Project> {
     .select("*")
     .eq("project_id", id);
   if (fileError) throw new Error("파일을 읽지 못했습니다.");
-  const result: Record<string, ProjectFile> = {};
-  for (const file of files ?? []) {
-    let content = file.text_content ?? "";
-    if (file.kind === "text" && file.storage_path) {
-      const { data, error } = await db.storage
-        .from("editor-files")
-        .download(file.storage_path);
-      if (error || !data || data.size !== file.size_bytes)
-        throw new Error("텍스트 파일을 읽지 못했습니다.");
-      content = new TextDecoder("utf-8", { fatal: true }).decode(
-        await data.arrayBuffer(),
-      );
-    }
-    if (file.kind === "binary") {
-      const signed = await db.storage
-        .from("editor-files")
-        .createSignedUrl(file.storage_path, 300);
-      if (signed.error)
-        throw new Error("파일 다운로드 URL 생성에 실패했습니다.");
-      content = signed.data.signedUrl;
-    }
-    result[file.path] = {
-      kind: file.kind,
-      content,
-      mime: file.mime,
-      size: file.size_bytes,
-      storagePath: file.storage_path ?? undefined,
-    };
-  }
+  const result = await filesFromRows(db, files ?? []);
   return {
     id: row.id,
     title: row.title,
@@ -155,6 +134,47 @@ export async function get(user: SessionUser, id: string): Promise<Project> {
     threads: row.snapshot.threads ?? [],
     deployments: row.snapshot.deployments ?? [],
   };
+}
+type FileRow = {
+  path: string;
+  kind: ProjectFile["kind"];
+  text_content: string | null;
+  storage_path: string | null;
+  mime: string;
+  size_bytes: number;
+};
+/** Turns stored file rows (live files or snapshot copies) into editor files. */
+async function filesFromRows(db: ReturnType<typeof admin>, rows: FileRow[]) {
+  const result: Record<string, ProjectFile> = {};
+  for (const file of rows) {
+    let content = file.text_content ?? "";
+    if (file.kind === "text" && file.storage_path) {
+      const { data, error } = await db.storage
+        .from("editor-files")
+        .download(file.storage_path);
+      if (error || !data || data.size !== Number(file.size_bytes))
+        throw new Error("텍스트 파일을 읽지 못했습니다.");
+      content = new TextDecoder("utf-8", { fatal: true }).decode(
+        await data.arrayBuffer(),
+      );
+    }
+    if (file.kind === "binary" && file.storage_path) {
+      const signed = await db.storage
+        .from("editor-files")
+        .createSignedUrl(file.storage_path, 300);
+      if (signed.error)
+        throw new Error("파일 다운로드 URL 생성에 실패했습니다.");
+      content = signed.data.signedUrl;
+    }
+    result[file.path] = {
+      kind: file.kind,
+      content,
+      mime: file.mime,
+      size: Number(file.size_bytes),
+      storagePath: file.storage_path ?? undefined,
+    };
+  }
+  return result;
 }
 export async function prepareFiles(user: SessionUser, project: Project) {
   validateFiles(project.files);
@@ -208,6 +228,7 @@ export async function save(
   expectedRevision: number,
   advance = true,
   metadata = true,
+  record: { source: SaveSource; messageId?: string } = { source: "student" },
 ): Promise<Project> {
   const db = admin();
   if (advance && !project.deletedAt) {
@@ -216,7 +237,7 @@ export async function save(
     assertStorageLimit(usage.usedBytes + validateFiles(project.files).total);
   }
   const files = await prepareFiles(user, project);
-  const { data, error } = await db.rpc("editor_save_project", {
+  const params = {
     p_owner: user.id,
     p_project: { ...project, files: undefined },
     p_files: files,
@@ -224,7 +245,16 @@ export async function save(
     p_advance: advance,
     p_metadata: metadata,
     p_meta_expected: project.metadataRevision ?? 0,
-  });
+  };
+  // Revision origins are recorded only when the process-record migration is live.
+  const { data, error } =
+    advance && processRecordEnabled()
+      ? await db.rpc("editor_save_project_recorded", {
+          ...params,
+          p_source: record.source,
+          p_message_id: record.messageId ?? null,
+        })
+      : await db.rpc("editor_save_project", params);
   if (error)
     throw new Error(
       error.message.includes("revision")
@@ -314,5 +344,116 @@ export async function aiUsage(user: SessionUser) {
     monthReservedUsd: (data ?? [])
       .filter((r) => r.date.startsWith(today.slice(0, 7)))
       .reduce((sum, r) => sum + Number(r.reserved_usd), 0),
+  };
+}
+
+export function assertProcessRecord() {
+  if (!processRecordEnabled())
+    throw new Error(
+      "과정 기록 기능이 아직 활성화되지 않았습니다. 관리자에게 DB 적용 여부를 확인하세요.",
+    );
+}
+async function assertOwner(user: SessionUser, projectId: string) {
+  uuid.parse(projectId);
+  const { data, error } = await admin()
+    .from("editor_projects")
+    .select("id")
+    .eq("id", projectId)
+    .eq("owner_id", user.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data)
+    throw new Error("프로젝트를 찾을 수 없거나 접근 권한이 없습니다.");
+}
+/** Records a learning event. Over the daily cap the event is dropped and false is returned. */
+export async function recordEvent(
+  user: SessionUser,
+  projectId: string,
+  kind: string,
+  revision: number | null,
+  payload: Record<string, unknown> = {},
+) {
+  assertProcessRecord();
+  const { data, error } = await admin().rpc("editor_record_event", {
+    p_owner: user.id,
+    p_project: projectId,
+    p_kind: kind,
+    p_revision: revision,
+    p_payload: payload,
+  });
+  if (error) throw new Error("학습 기록을 저장하지 못했습니다.");
+  return data === true;
+}
+export async function createSnapshot(
+  user: SessionUser,
+  projectId: string,
+  kind: Checkpoint["kind"],
+  note?: string,
+): Promise<Checkpoint> {
+  assertProcessRecord();
+  const { data, error } = await admin().rpc("editor_create_snapshot", {
+    p_owner: user.id,
+    p_project: projectId,
+    p_kind: kind,
+    p_note: note ?? null,
+  });
+  if (error)
+    throw new Error(
+      error.message.includes("limit")
+        ? "체크포인트는 프로젝트당 200개까지 남길 수 있습니다."
+        : "체크포인트를 저장하지 못했습니다. 다시 시도해주세요.",
+    );
+  return {
+    id: data.id,
+    revision: Number(data.revision),
+    kind: data.kind,
+    note: data.note ?? undefined,
+    createdAt: data.createdAt,
+  };
+}
+export async function listSnapshots(
+  user: SessionUser,
+  projectId: string,
+): Promise<Checkpoint[]> {
+  assertProcessRecord();
+  await assertOwner(user, projectId);
+  const { data, error } = await admin()
+    .from("editor_snapshots")
+    .select("id,revision,kind,note,created_at")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) throw new Error("체크포인트 목록을 읽지 못했습니다.");
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    revision: Number(row.revision),
+    kind: row.kind,
+    note: row.note ?? undefined,
+    createdAt: row.created_at,
+  }));
+}
+export async function getSnapshot(
+  user: SessionUser,
+  projectId: string,
+  snapshotId: string,
+): Promise<CheckpointDetail> {
+  assertProcessRecord();
+  await assertOwner(user, projectId);
+  uuid.parse(snapshotId);
+  const db = admin();
+  const { data: row, error } = await db
+    .from("editor_snapshots")
+    .select("*")
+    .eq("id", snapshotId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+  if (error || !row) throw new Error("체크포인트를 찾을 수 없습니다.");
+  return {
+    id: row.id,
+    revision: Number(row.revision),
+    kind: row.kind,
+    note: row.note ?? undefined,
+    createdAt: row.created_at,
+    files: await filesFromRows(db, row.files ?? []),
   };
 }

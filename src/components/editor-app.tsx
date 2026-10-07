@@ -47,6 +47,7 @@ import {
   PanelRightClose,
   PanelLeftClose,
   Palette,
+  Flag,
 } from "lucide-react";
 import { GitHubPanel } from "./github-panel";
 import { Dialog } from "./dialog";
@@ -54,8 +55,11 @@ import { Preview, type ConsoleEntry } from "./preview";
 import {
   api,
   browserSupabase,
+  createCheckpoint,
   hydrateProject,
+  listCheckpoints,
   listProjects,
+  openCheckpoint,
   saveProject,
   uploadAttachments,
 } from "@/lib/client";
@@ -79,6 +83,9 @@ import { demoAnswer } from "@/lib/demo-ai";
 import type {
   AppConfig,
   ChatMessage,
+  Checkpoint,
+  CheckpointDetail,
+  ClientEventKind,
   Project,
   Proposal,
   SessionUser,
@@ -106,6 +113,7 @@ type Modal =
   | "commands"
   | "github"
   | "deploy"
+  | "checkpoint"
   | null;
 const fileReader = (file: Blob) =>
   new Promise<string>((resolve, reject) => {
@@ -200,6 +208,14 @@ export function EditorApp({ config }: { config: AppConfig }) {
     isListed: true,
     thumbnailPath: "",
   });
+  const [deployNote, setDeployNote] = useState(""),
+    [checkpoints, setCheckpoints] = useState<Checkpoint[] | null>(null),
+    [checkpointNote, setCheckpointNote] = useState(""),
+    [checkpointPreview, setCheckpointPreview] =
+      useState<CheckpointDetail | null>(null),
+    [checkpointPending, setCheckpointPending] = useState(false);
+  // Checkpoints work in the local demo and wherever the process-record DB is live.
+  const processRecord = config.demo || config.processRecord;
   const noFileTabs = !tabs.some((path) => project?.files[path]);
   const pane = noFileTabs && !diff ? "preview" : requestedPane;
   const split = !noFileTabs && requestedSplit;
@@ -219,7 +235,11 @@ export function EditorApp({ config }: { config: AppConfig }) {
     dragPath = useRef(""),
     tabDrag = useRef(""),
     pendingCode = useRef(""),
-    projectSubmitLock = useRef(false);
+    projectSubmitLock = useRef(false),
+    saveSource = useRef<"student" | "import">("student"),
+    seenErrors = useRef(new Set<string>()),
+    errorStreak = useRef(0),
+    resolveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const thread =
     project?.threads.find((t) => t.id === threadId) ?? project?.threads[0];
   const usageLabel = config.demo
@@ -284,13 +304,20 @@ export function EditorApp({ config }: { config: AppConfig }) {
         setStatus("saving");
         const controller = new AbortController();
         saveUpload.current = controller;
+        // An import marks only the save that carries it; later saves are the student's own.
+        const source = saveSource.current;
+        saveSource.current = "student";
         try {
           const saved = await saveProject(
             snapshot,
             persistedRevision.current,
             config.demo,
             advance,
-            { signal: controller.signal, onProgress: setStorageProgress },
+            {
+              signal: controller.signal,
+              onProgress: setStorageProgress,
+              source,
+            },
           );
           persistedRevision.current = saved.revision;
           persistedProject.current = saved;
@@ -331,6 +358,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
         } catch (e) {
           setStatus("error");
           dirty.current = true;
+          if (source === "import") saveSource.current = "import";
           if (controller.signal.aborted)
             setNotice(
               "업로드를 취소했습니다. 파일은 편집기에 남아 있으며 저장 다시 시도로 올릴 수 있습니다.",
@@ -394,6 +422,12 @@ export function EditorApp({ config }: { config: AppConfig }) {
     setAttachments([]);
     setSelection("");
     setLogs([]);
+    seenErrors.current = new Set();
+    errorStreak.current = 0;
+    clearTimeout(resolveTimer.current);
+    saveSource.current = "student";
+    setCheckpoints(null);
+    setCheckpointPreview(null);
     setStatus("saved");
     setUnsaved(new Set());
     setModal(null);
@@ -596,6 +630,92 @@ export function EditorApp({ config }: { config: AppConfig }) {
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
   }, []);
+  /** Process events are best-effort: they never interrupt the student. */
+  function reportEvent(
+    kind: ClientEventKind,
+    payload: Record<string, unknown>,
+  ) {
+    const target = current.current;
+    if (config.demo || !config.processRecord || !target) return;
+    void api("event", {
+      projectId: target.id,
+      kind,
+      revision: Math.max(0, persistedRevision.current),
+      payload,
+    }).catch(() => {});
+  }
+  // Each distinct preview error is reported once per session. When a run that had errors is
+  // followed by a run that stays clean for 3 seconds, the fix is reported as resolved.
+  const watchPreviewErrors = useEffectEvent((entries: ConsoleEntry[]) => {
+    const errors = entries.filter((entry) => entry.level === "error");
+    for (const entry of errors) {
+      const key = `${entry.path}:${entry.line}:${entry.text.slice(0, 300)}`;
+      if (seenErrors.current.has(key) || seenErrors.current.size >= 100)
+        continue;
+      seenErrors.current.add(key);
+      reportEvent("preview_error", {
+        message: entry.text.slice(0, 300),
+        path: entry.path.slice(0, 180),
+        line: entry.line,
+      });
+    }
+    if (errors.length) {
+      clearTimeout(resolveTimer.current);
+      errorStreak.current = Math.max(errorStreak.current, errors.length);
+    } else if (errorStreak.current) {
+      clearTimeout(resolveTimer.current);
+      resolveTimer.current = setTimeout(() => {
+        reportEvent("errors_resolved", {
+          count: Math.min(errorStreak.current, 1000),
+        });
+        errorStreak.current = 0;
+      }, 3000);
+    }
+  });
+  useEffect(() => watchPreviewErrors(logs), [logs]);
+  useEffect(() => () => clearTimeout(resolveTimer.current), []);
+  async function showCheckpoints() {
+    if (!project) return;
+    setCheckpointNote("");
+    setCheckpointPreview(null);
+    setFormError("");
+    setModal("checkpoint");
+    try {
+      setCheckpoints(await listCheckpoints(project.id, config.demo));
+    } catch (e) {
+      setCheckpoints([]);
+      setFormError(e instanceof Error ? e.message : String(e));
+    }
+  }
+  async function submitCheckpoint(e: React.FormEvent) {
+    e.preventDefault();
+    if (!project || checkpointPending) return;
+    setCheckpointPending(true);
+    setFormError("");
+    try {
+      if (dirty.current) await flush();
+      const saved = current.current!;
+      await createCheckpoint(saved, config.demo, checkpointNote);
+      setCheckpointNote("");
+      setCheckpoints(await listCheckpoints(saved.id, config.demo));
+      setNotice("체크포인트를 남겼어요. 지금 모습이 그대로 보관됩니다.");
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCheckpointPending(false);
+    }
+  }
+  async function previewCheckpoint(item: Checkpoint) {
+    if (!project) return;
+    setFormError("");
+    try {
+      setCheckpointPreview(
+        await openCheckpoint(project.id, item.id, config.demo),
+      );
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : String(e));
+    }
+  }
   function mutateFiles(files: Project["files"]) {
     try {
       validateFiles(files);
@@ -865,6 +985,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
       next = { ...current.current.files, ...next };
       validateFiles(next);
       mutateFiles(next);
+      saveSource.current = "import";
       setNotice("파일을 가져왔습니다.");
     } catch (e) {
       if (controller.signal.aborted) setNotice("파일 가져오기를 취소했습니다.");
@@ -1314,6 +1435,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
       isListed: previous?.isListed ?? true,
       thumbnailPath: previous?.thumbnailPath ?? "",
     });
+    setDeployNote("");
     setFormError("");
     setModal("deploy");
   }
@@ -1342,12 +1464,17 @@ export function EditorApp({ config }: { config: AppConfig }) {
         };
         assign(next);
         await flush(false);
+        await createCheckpoint(current.current!, true, deployNote, "deploy");
         setNotice(
           "ZIP 검증을 완료했습니다. 실제 라운지 배포는 연결 후 사용할 수 있어요.",
         );
       } else {
         const next = await (
-          await api("deploy", { projectId: project.id, form: deployFields })
+          await api("deploy", {
+            projectId: project.id,
+            form: deployFields,
+            note: deployNote,
+          })
         ).json();
         if (dirty.current) await flush();
         const savedBase = persistedProject.current!;
@@ -1736,6 +1863,17 @@ export function EditorApp({ config }: { config: AppConfig }) {
                 }[status]
               }
             </span>
+            {processRecord && (
+              <button
+                className="checkpoint-button"
+                title="지금 모습을 체크포인트로 남기고 이전 체크포인트를 봅니다"
+                onClick={() => void showCheckpoints()}
+                disabled={!project || busy}
+              >
+                <Flag size={14} />
+                여기까지 완성
+              </button>
+            )}
             <button
               className="deploy-button"
               onClick={openDeploy}
@@ -2320,6 +2458,12 @@ export function EditorApp({ config }: { config: AppConfig }) {
                             onCursor={(line, column) =>
                               setCursor({ line, column })
                             }
+                            onLargePaste={(lines) =>
+                              reportEvent("large_paste", {
+                                lines,
+                                path: active.slice(0, 180),
+                              })
+                            }
                           />
                           {active.endsWith(".svg") && (
                             <div className="svg-preview">
@@ -2847,6 +2991,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
               commands: "명령 팔레트",
               github: "GitHub 연동",
               deploy: "작품 배포",
+              checkpoint: "여기까지 완성",
             }[modal]
           }
           onClose={() => {
@@ -3125,6 +3270,86 @@ export function EditorApp({ config }: { config: AppConfig }) {
               }}
             />
           )}
+          {modal === "checkpoint" && (
+            <div className="checkpoints">
+              <form onSubmit={submitCheckpoint}>
+                <p className="helper">
+                  지금까지 만든 모습을 그대로 보관합니다. 나중에 이 시점의
+                  작품을 다시 열어볼 수 있어요.
+                </p>
+                <label>
+                  한 줄 회고 (선택)
+                  <input
+                    maxLength={200}
+                    value={checkpointNote}
+                    placeholder="예: 점프가 두 번 되던 문제를 고쳤다"
+                    onChange={(e) => setCheckpointNote(e.target.value)}
+                  />
+                </label>
+                {formError && (
+                  <p className="error-text" role="alert">
+                    {formError}
+                  </p>
+                )}
+                <div className="dialog-actions">
+                  <button className="primary" disabled={checkpointPending}>
+                    {checkpointPending ? "남기는 중…" : "체크포인트 남기기"}
+                  </button>
+                </div>
+              </form>
+              {checkpointPreview && (
+                <div className="checkpoint-preview">
+                  <div className="checkpoint-preview-heading">
+                    <strong>
+                      {formatProjectDate(checkpointPreview.createdAt)}의 모습
+                    </strong>
+                    <button
+                      type="button"
+                      onClick={() => setCheckpointPreview(null)}
+                    >
+                      <X size={14} /> 닫기
+                    </button>
+                  </div>
+                  <Preview
+                    key={checkpointPreview.id}
+                    files={checkpointPreview.files}
+                    onConsole={() => {}}
+                    onNavigate={() => {}}
+                  />
+                </div>
+              )}
+              <h3>남긴 체크포인트</h3>
+              {checkpoints === null ? (
+                <p className="helper">불러오는 중…</p>
+              ) : !checkpoints.length ? (
+                <p className="helper">아직 남긴 체크포인트가 없어요.</p>
+              ) : (
+                <ul className="checkpoint-list">
+                  {checkpoints.map((item) => (
+                    <li key={item.id}>
+                      <div>
+                        <strong>
+                          {item.kind === "deploy" ? "게시" : "체크포인트"}
+                        </strong>
+                        <small>
+                          <time dateTime={item.createdAt}>
+                            {formatProjectDate(item.createdAt)}
+                          </time>
+                        </small>
+                        {item.note && <p>{item.note}</p>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void previewCheckpoint(item)}
+                      >
+                        <Play size={13} /> 이 시점 보기
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           {modal === "deploy" && (
             <form onSubmit={deploySubmit}>
               {config.demo && (
@@ -3195,6 +3420,17 @@ export function EditorApp({ config }: { config: AppConfig }) {
                     ))}
                 </select>
               </label>
+              {processRecord && (
+                <label>
+                  한 줄 회고 (선택)
+                  <input
+                    maxLength={200}
+                    value={deployNote}
+                    placeholder="이번 게시에서 새로 만든 점을 적어보세요"
+                    onChange={(e) => setDeployNote(e.target.value)}
+                  />
+                </label>
+              )}
               <div className="check-row">
                 <label>
                   <input

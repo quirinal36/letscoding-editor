@@ -1,10 +1,13 @@
-import type { Project } from "./types";
+import type { Checkpoint, CheckpointDetail, Project } from "./types";
 import { validateFiles, assertStorageLimit } from "./vfs";
 function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open("letscoding-editor", 1);
-    req.onupgradeneeded = () =>
-      req.result.createObjectStore("projects", { keyPath: "id" });
+    const req = indexedDB.open("letscoding-editor", 2);
+    req.onupgradeneeded = () => {
+      for (const name of ["projects", "snapshots"])
+        if (!req.result.objectStoreNames.contains(name))
+          req.result.createObjectStore(name, { keyPath: "id" });
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () =>
       reject(
@@ -97,4 +100,103 @@ export async function localSave(
       );
     };
   });
+}
+
+type LocalSnapshot = CheckpointDetail & { projectId: string };
+function snapshots<T>(
+  mode: IDBTransactionMode,
+  run: (store: IDBObjectStore, done: (value: T) => void) => void,
+): Promise<T> {
+  return database().then(
+    (db) =>
+      new Promise<T>((resolve, reject) => {
+        const tx = db.transaction("snapshots", mode);
+        let result: T;
+        run(tx.objectStore("snapshots"), (value) => (result = value));
+        tx.oncomplete = () => {
+          db.close();
+          resolve(result);
+        };
+        tx.onerror = tx.onabort = () => {
+          db.close();
+          reject(new Error("체크포인트를 브라우저에 저장하지 못했습니다."));
+        };
+      }),
+  );
+}
+const summary = ({ id, revision, kind, note, createdAt }: LocalSnapshot) => ({
+  id,
+  revision,
+  kind,
+  note,
+  createdAt,
+});
+/** Demo counterpart of editor_create_snapshot: same revision and kind returns the existing one. */
+export async function localCreateSnapshot(
+  project: Project,
+  kind: Checkpoint["kind"],
+  note?: string,
+): Promise<Checkpoint> {
+  const clean = note?.trim() || undefined;
+  if (clean && clean.length > 200)
+    throw new Error("한 줄 회고는 200자 이내로 적어주세요.");
+  return snapshots("readwrite", (store, done) => {
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const existing = (req.result as LocalSnapshot[]).find(
+        (s) =>
+          s.projectId === project.id &&
+          s.revision === project.revision &&
+          s.kind === kind,
+      );
+      if (existing) {
+        if (clean && !existing.note) {
+          existing.note = clean;
+          store.put(existing);
+        }
+        done(summary(existing));
+        return;
+      }
+      const created: LocalSnapshot = {
+        id: crypto.randomUUID(),
+        projectId: project.id,
+        revision: project.revision,
+        kind,
+        note: clean,
+        createdAt: new Date().toISOString(),
+        files: structuredClone(project.files),
+      };
+      store.put(created);
+      done(summary(created));
+    };
+  });
+}
+export async function localListSnapshots(
+  projectId: string,
+): Promise<Checkpoint[]> {
+  return snapshots("readonly", (store, done) => {
+    const req = store.getAll();
+    req.onsuccess = () =>
+      done(
+        (req.result as LocalSnapshot[])
+          .filter((s) => s.projectId === projectId)
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          .map(summary),
+      );
+  });
+}
+export async function localGetSnapshot(
+  projectId: string,
+  id: string,
+): Promise<CheckpointDetail> {
+  const found = await snapshots<LocalSnapshot | undefined>(
+    "readonly",
+    (store, done) => {
+      const req = store.get(id);
+      req.onsuccess = () => done(req.result as LocalSnapshot | undefined);
+    },
+  );
+  if (!found || found.projectId !== projectId)
+    throw new Error("체크포인트를 찾을 수 없습니다.");
+  return { ...summary(found), files: found.files };
 }

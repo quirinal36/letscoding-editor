@@ -31,8 +31,12 @@ for (const [name, keys] of Object.entries(groups))
     `${name}: ${keys.filter((k) => !process.env[k]).join(", ") || "필수 값 입력됨 (연결 검증 전)"}`,
   );
 console.log(
-  `개발 데모: ${config.demo}, 실제 AI: ${config.ai}, 이미지 생성: ${config.image}, 배포: ${config.deploy}`,
+  `개발 데모: ${config.demo}, 실제 AI: ${config.ai}, 이미지 생성: ${config.image}, 배포: ${config.deploy}, 과정 기록: ${config.processRecord}`,
 );
+if (process.env.EDITOR_PROCESS_RECORD === "true" && !config.cloud)
+  console.log(
+    "EDITOR_PROCESS_RECORD: 서버 저장 설정과 process-record.sql 적용이 먼저 필요합니다.",
+  );
 for (const key of [
   "EDITOR_AI_DAILY_LIMIT_USD",
   "EDITOR_AI_MONTHLY_LIMIT_USD",

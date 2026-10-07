@@ -56,8 +56,18 @@ export function appConfig(): AppConfig {
       process.env.EDITOR_DEPLOY_ENABLED === "true" &&
       !!process.env.LOUNGE_INTERNAL_API_URL &&
       !!process.env.LOUNGE_INTERNAL_API_SECRET,
+    processRecord: processRecordEnabled(),
     models,
   };
+}
+
+/** Enabled only after integration/process-record.sql is applied to the shared DB. */
+export function processRecordEnabled() {
+  return (
+    !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    !!process.env.SUPABASE_SERVICE_ROLE_KEY &&
+    process.env.EDITOR_PROCESS_RECORD === "true"
+  );
 }
 
 /** Reserve a conservative estimate, bounded by the configured per-turn ceiling. */

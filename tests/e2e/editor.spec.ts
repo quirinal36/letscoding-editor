@@ -860,3 +860,68 @@ test("lounge prompt picker fills the draft without sending and dismisses accessi
     page.locator("header").getByRole("button", { name: "라운지에 게시하기" }),
   ).toBeVisible();
 });
+
+test("checkpoints keep earlier versions with an optional reflection, including demo deploys", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .locator(".project-list > div > button:first-child")
+    .filter({ hasText: "나의 첫 클릭 게임" })
+    .first()
+    .click();
+  await expect(page.getByRole("tree")).toBeVisible();
+  const upload = async (heading: string) => {
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByLabel("업로드할 파일").setInputFiles({
+      name: "index.html",
+      mimeType: "text/html",
+      buffer: Buffer.from(
+        `<!doctype html><html lang="ko"><head><title>체크포인트</title></head><body><h1>${heading}</h1></body></html>`,
+      ),
+    });
+    await expect(page.getByText("저장됨", { exact: true })).toBeVisible();
+  };
+  await upload("첫 버전");
+  await page.getByRole("button", { name: "여기까지 완성" }).click();
+  const dialog = page.getByRole("dialog", { name: "여기까지 완성" });
+  await expect(
+    dialog.getByText("아직 남긴 체크포인트가 없어요."),
+  ).toBeVisible();
+  const note = dialog.getByLabel("한 줄 회고 (선택)");
+  await expect(note).toHaveAttribute("maxlength", "200");
+  await note.fill("제목을 처음 만들었다");
+  await dialog.getByRole("button", { name: "체크포인트 남기기" }).click();
+  await expect(dialog.getByText("제목을 처음 만들었다")).toBeVisible();
+  // The same saved state is not stored twice.
+  await dialog.getByRole("button", { name: "체크포인트 남기기" }).click();
+  await expect(dialog.locator(".checkpoint-list li")).toHaveCount(1);
+  await dialog.getByRole("button", { name: "닫기" }).first().click();
+
+  await upload("두 번째 버전");
+  await page.getByRole("button", { name: "라운지에 게시하기" }).click();
+  const deploy = page.getByRole("dialog", { name: "작품 배포" });
+  await deploy.getByLabel("한 줄 회고 (선택)").fill("두 번째 버전을 게시했다");
+  await deploy.getByRole("button", { name: "배포 ZIP 검증" }).click();
+  await expect(deploy).not.toBeVisible();
+
+  await page.getByRole("button", { name: "여기까지 완성" }).click();
+  const items = dialog.locator(".checkpoint-list li");
+  await expect(items).toHaveCount(2);
+  await expect(items.first()).toContainText("게시");
+  await expect(items.first()).toContainText("두 번째 버전을 게시했다");
+  await items.last().getByRole("button", { name: "이 시점 보기" }).click();
+  await expect(
+    dialog
+      .frameLocator('iframe[title="작품 미리보기"]')
+      .getByRole("heading", { name: "첫 버전" }),
+  ).toBeVisible();
+  await page.reload();
+  await page
+    .locator(".project-list > div > button:first-child")
+    .filter({ hasText: "나의 첫 클릭 게임" })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "여기까지 완성" }).click();
+  await expect(dialog.locator(".checkpoint-list li")).toHaveCount(2);
+});

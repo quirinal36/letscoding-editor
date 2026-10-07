@@ -1309,6 +1309,71 @@ pre {
 .deployment-history small {
   color: var(--muted);
 }
+.checkpoint-button {
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 12px;
+}
+.checkpoints label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 12px;
+}
+.checkpoint-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+.checkpoint-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--bg);
+  padding: 12px;
+  margin: 8px 0;
+  border-radius: 7px;
+  font-size: 12px;
+}
+.checkpoint-list li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.checkpoint-list small {
+  color: var(--muted);
+}
+.checkpoint-list p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.checkpoint-list button {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.checkpoint-preview {
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.checkpoint-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.checkpoint-preview .preview-pane {
+  height: 320px;
+}
 .loading-screen,
 .login-screen {
   min-height: 100dvh;

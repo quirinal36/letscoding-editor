@@ -75,12 +75,29 @@ export type Usage = {
   promptTokens: number;
   completionTokens: number;
 };
+/** Who or what produced a saved revision; recorded so teachers can read the process later. */
+export type SaveSource = "student" | "ai" | "import" | "restore" | "template";
+/** Learning events the browser may report. Server-side kinds are recorded by the API itself. */
+export type ClientEventKind =
+  "preview_error" | "errors_resolved" | "large_paste";
+export type Checkpoint = {
+  id: string;
+  revision: number;
+  kind: "checkpoint" | "deploy";
+  note?: string;
+  createdAt: string;
+};
+export type CheckpointDetail = Checkpoint & {
+  files: Record<string, ProjectFile>;
+};
 export type AppConfig = {
   demo: boolean;
   cloud: boolean;
   ai: boolean;
   image: boolean;
   deploy: boolean;
+  /** Process records (revision origins, events, checkpoints) are stored in the shared DB. */
+  processRecord: boolean;
   models: {
     id: string;
     label: string;

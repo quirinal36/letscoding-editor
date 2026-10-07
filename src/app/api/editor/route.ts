@@ -6,9 +6,13 @@ import {
   aiUsage,
   admin,
   authenticate,
+  createSnapshot,
   get,
+  getSnapshot,
   list,
+  listSnapshots,
   projectInput,
+  recordEvent,
   reserve,
   save,
   settle,
@@ -17,7 +21,12 @@ import {
 } from "@/lib/server/repository";
 import { generateImageFile } from "@/lib/server/image";
 import { chat, chatInput } from "@/lib/server/ai";
-import { appConfig, positive, turnReservation } from "@/lib/server/config";
+import {
+  appConfig,
+  positive,
+  processRecordEnabled,
+  turnReservation,
+} from "@/lib/server/config";
 import { deploy, deployForm, launchDeployment } from "@/lib/server/deploy";
 import {
   applyProposal,
@@ -27,9 +36,40 @@ import {
   LIMITS,
 } from "@/lib/vfs";
 import { createProject } from "@/lib/templates";
-import type { Project } from "@/lib/types";
+import type { Project, SessionUser } from "@/lib/types";
 export const runtime = "nodejs";
 export const maxDuration = 300;
+const reflection = z.string().trim().max(200).optional();
+/** Browser-reported learning events. Code is never accepted, only short metadata. */
+const eventInput = z.object({
+  projectId: uuid,
+  kind: z.enum(["preview_error", "errors_resolved", "large_paste"]),
+  revision: z.number().int().min(0),
+  payload: z
+    .object({
+      message: z.string().max(300).optional(),
+      path: z.string().max(180).optional(),
+      line: z.number().int().min(0).max(1_000_000).optional(),
+      count: z.number().int().min(1).max(1000).optional(),
+      lines: z.number().int().min(1).max(100_000).optional(),
+    })
+    .strict(),
+});
+/** Server-side process events must never fail the request that produced them. */
+async function recordQuietly(
+  user: SessionUser,
+  projectId: string,
+  kind: string,
+  revision: number,
+  payload: Record<string, unknown>,
+) {
+  if (!processRecordEnabled()) return;
+  try {
+    await recordEvent(user, projectId, kind, revision, payload);
+  } catch {
+    logAction(`record-${kind}-failed`, user.id, { projectId });
+  }
+}
 export async function POST(request: Request) {
   let telemetry:
     | { userId: string; action: string; projectId?: string; threadId?: string }
@@ -72,6 +112,10 @@ export async function POST(request: Request) {
         "launch",
         "unlink",
         "image",
+        "event",
+        "checkpoint",
+        "checkpoints",
+        "checkpoint-files",
       ])
       .parse(body.action);
     const telemetryId = (value: unknown) =>
@@ -100,11 +144,18 @@ export async function POST(request: Request) {
         })
         .parse(body);
       const project = createProject(input.template, input.title);
-      return Response.json(await save(user, project, -1));
+      return Response.json(
+        await save(user, project, -1, true, true, { source: "template" }),
+      );
     }
     if (action === "save") {
       const input = projectInput.parse(body.project),
         expected = z.number().int().min(0).parse(body.expectedRevision),
+        // Only "import" may be claimed by the browser; it is shown to teachers as a hint.
+        source = z
+          .enum(["student", "import"])
+          .default("student")
+          .parse(body.source),
         current = await get(user, input.id);
       for (const [path, file] of Object.entries(input.files))
         if (file.kind === "text" && file.storagePath) {
@@ -131,7 +182,7 @@ export async function POST(request: Request) {
         deletedAt: current.deletedAt,
       };
       // Chat and deployment records are server-owned; client snapshots cannot forge approval results.
-      await save(user, project, expected, true, false);
+      await save(user, project, expected, true, false, { source });
       return Response.json(await get(user, project.id));
     }
     if (action === "rename-project") {
@@ -184,6 +235,9 @@ export async function POST(request: Request) {
             deployments: [],
           },
           -1,
+          true,
+          true,
+          { source: "template" },
         ),
       );
     }
@@ -326,27 +380,57 @@ export async function POST(request: Request) {
           action === "approve" ? applyProposals(project, proposals) : project;
         for (const proposal of proposals)
           proposal.status = action === "approve" ? "applied" : "rejected";
-        await save(user, updated, project.revision, action === "approve");
+        const saved = await save(
+          user,
+          updated,
+          project.revision,
+          action === "approve",
+          true,
+          { source: "ai", messageId: message.id },
+        );
+        if (action === "reject")
+          await recordQuietly(
+            user,
+            project.id,
+            "proposal_rejected",
+            saved.revision,
+            {
+              messageId: message.id,
+              count: proposals.length,
+            },
+          );
         return Response.json(await get(user, project.id));
       }
       const proposalId = uuid.parse(body.proposalId),
-        proposal = project.threads
+        owner = project.threads
           .flatMap((t) => t.messages)
-          .flatMap((m) => m.proposals)
-          .find((p) => p.id === proposalId);
-      if (!proposal || proposal.status !== "pending")
+          .find((m) => m.proposals.some((p) => p.id === proposalId)),
+        proposal = owner?.proposals.find((p) => p.id === proposalId);
+      if (!owner || !proposal || proposal.status !== "pending")
         throw new Error("처리할 변경안이 없습니다.");
       if (action === "reject") {
         proposal.status = "rejected";
-        return Response.json(
-          await save(user, project, project.revision, false),
+        const saved = await save(user, project, project.revision, false);
+        await recordQuietly(
+          user,
+          project.id,
+          "proposal_rejected",
+          saved.revision,
+          {
+            messageId: owner.id,
+            count: 1,
+          },
         );
+        return Response.json(saved);
       }
       if (body.automatic && proposal.requiresReview)
         throw new Error("기존 파일 전체 교체는 비교 후 직접 승인해주세요.");
       const updated = applyProposal(project, proposal);
       proposal.status = "applied";
-      await save(user, updated, project.revision);
+      await save(user, updated, project.revision, true, true, {
+        source: "ai",
+        messageId: owner.id,
+      });
       return Response.json(await get(user, project.id));
     }
     if (action === "storage") return Response.json(await storageUsage(user));
@@ -362,13 +446,22 @@ export async function POST(request: Request) {
     }
     if (action === "deploy") {
       const project = await get(user, uuid.parse(body.projectId)),
-        form = deployForm.parse(body.form);
+        form = deployForm.parse(body.form),
+        note = reflection.parse(body.note);
       try {
         const result = await deploy(user, project, form);
         const latest = await get(user, project.id);
         latest.loungeId = result.loungeId;
         latest.deployments.push(result.deployment);
-        return Response.json(await save(user, latest, latest.revision, false));
+        const saved = await save(user, latest, latest.revision, false);
+        // The deployed state becomes a durable snapshot; failure here never undoes the deployment.
+        if (processRecordEnabled())
+          await createSnapshot(user, project.id, "deploy", note).catch(() =>
+            logAction("deploy-snapshot-failed", user.id, {
+              projectId: project.id,
+            }),
+          );
+        return Response.json(saved);
       } catch (error) {
         const latest = await get(user, project.id);
         latest.deployments.push({
@@ -418,12 +511,45 @@ export async function POST(request: Request) {
         completionTokens = result.completionTokens;
         const latest = await get(user, project.id);
         latest.files[result.path] = result.file;
-        await save(user, latest, latest.revision);
+        await save(user, latest, latest.revision, true, true, {
+          source: "ai",
+        });
         return Response.json(await get(user, project.id));
       } finally {
         await settle(user, reservation, cost, promptTokens, completionTokens);
       }
     }
+    if (action === "event") {
+      const input = eventInput.parse(body);
+      return Response.json({
+        recorded: await recordEvent(
+          user,
+          input.projectId,
+          input.kind,
+          input.revision,
+          input.payload,
+        ),
+      });
+    }
+    if (action === "checkpoint") {
+      const input = z.object({ projectId: uuid, note: reflection }).parse(body);
+      return Response.json(
+        await createSnapshot(user, input.projectId, "checkpoint", input.note),
+      );
+    }
+    if (action === "checkpoints")
+      return Response.json(
+        await listSnapshots(user, uuid.parse(body.projectId)),
+      );
+    if (action === "checkpoint-files")
+      return Response.json(
+        await getSnapshot(
+          user,
+          uuid.parse(body.projectId),
+          uuid.parse(body.checkpointId),
+        ),
+        { headers: { "Cache-Control": "no-store" } },
+      );
     throw new Error("지원하지 않는 요청입니다.");
   } catch (error) {
     if (process.env.SENTRY_DSN && telemetry) {
