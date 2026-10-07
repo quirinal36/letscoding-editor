@@ -12,6 +12,7 @@ export type Proposal = {
   target?: string;
   content?: string;
   file?: ProjectFile;
+  requiresReview?: boolean;
   baseRevision: number;
   status: "pending" | "applied" | "rejected";
 };
@@ -57,6 +58,7 @@ export type Project = {
   metadataRevision?: number;
   updatedAt: string;
   deletedAt?: string;
+  storageBytes?: number;
   loungeId?: string;
   files: Record<string, ProjectFile>;
   threads: Thread[];
@@ -69,6 +71,7 @@ export type Usage = {
   dailyLimitUsd: number;
   monthlyLimitUsd: number;
   monthCostUsd?: number;
+  monthReservedUsd?: number;
   promptTokens: number;
   completionTokens: number;
 };

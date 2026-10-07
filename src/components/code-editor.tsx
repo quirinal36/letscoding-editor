@@ -11,7 +11,7 @@ export function CodeEditor({
   onSelection,
   onCursor,
   readOnly,
-  line,
+  jump,
 }: {
   path: string;
   content: string;
@@ -20,16 +20,16 @@ export function CodeEditor({
   onSelection: (code: string) => void;
   onCursor: (line: number, column: number) => void;
   readOnly?: boolean;
-  line?: number;
+  jump?: { line: number };
 }) {
   const ref = useRef<editor.IStandaloneCodeEditor | null>(null);
   useEffect(() => {
-    if (line && ref.current) {
-      ref.current.revealLineInCenter(line);
-      ref.current.setPosition({ lineNumber: line, column: 1 });
+    if (jump && ref.current) {
+      ref.current.revealLineInCenter(jump.line);
+      ref.current.setPosition({ lineNumber: jump.line, column: 1 });
       ref.current.focus();
     }
-  }, [line]);
+  }, [jump, path]);
   return (
     <Editor
       path={path}
@@ -62,6 +62,11 @@ export function CodeEditor({
               : "",
           );
         });
+        if (jump) {
+          instance.revealLineInCenter(jump.line);
+          instance.setPosition({ lineNumber: jump.line, column: 1 });
+          instance.focus();
+        }
       }}
     />
   );

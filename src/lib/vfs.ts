@@ -1,11 +1,38 @@
 import type { Project, ProjectFile, Proposal } from "./types";
 export const LIMITS = {
   files: 500,
-  total: 100 * 1024 * 1024,
+  total: 30 * 1024 * 1024,
   upload: 5 * 1024 * 1024,
   text: 256 * 1024,
   zip: 30 * 1024 * 1024,
+  account: 100 * 1024 * 1024,
 };
+// ponytail: conservative reference check; atomic moves plus reference edits need a separate batch approval.
+export function assertUnreferencedMove(project: Project, path: string) {
+  const moved = Object.keys(project.files).filter(
+    (name) => name === path || name.startsWith(`${path}/`),
+  );
+  for (const [name, file] of Object.entries(project.files)) {
+    if (file.kind !== "text" || /\.md$/i.test(name)) continue;
+    if (
+      moved.some((source) => file.content.includes(source.split("/").at(-1)!))
+    )
+      throw new Error(
+        "이 파일 이동은 코드의 참조 경로 수정도 필요합니다. 현재 이동 도구만으로는 함께 반영할 수 없어 중단했습니다. 기존 작품은 유지됩니다.",
+      );
+  }
+}
+export function formatBytes(bytes: number) {
+  const unit = bytes >= 1024 * 1024 ? "MB" : bytes >= 1024 ? "KB" : "B";
+  const divisor = unit === "MB" ? 1024 * 1024 : unit === "KB" ? 1024 : 1;
+  return `${Number((bytes / divisor).toFixed(1))}${unit}`;
+}
+export function assertStorageLimit(bytes: number) {
+  if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > LIMITS.account)
+    throw new Error(
+      "개인 저장공간 100MB를 초과합니다. 사용하지 않는 프로젝트나 파일을 삭제해주세요.",
+    );
+}
 export const textFile = (
   content: string,
   mime = "text/plain",
@@ -79,7 +106,7 @@ export function validateFiles(files: Project["files"]) {
     }
   }
   if (count > LIMITS.files || total > LIMITS.total)
-    throw new Error("프로젝트 한도는 500개 파일, 전체 100MB입니다.");
+    throw new Error("프로젝트 한도는 500개 파일, 전체 30MB입니다.");
   return { count, total };
 }
 export function moveFile(
@@ -122,9 +149,10 @@ export function applyProposal(project: Project, proposal: Proposal): Project {
     throw new Error("파일이 변경되어 제안이 오래되었습니다. 다시 요청하세요.");
   assertPath(proposal.path);
   let files = { ...project.files };
-  if (proposal.operation === "rename")
+  if (proposal.operation === "rename") {
+    assertUnreferencedMove(project, proposal.path);
     files = moveFile(files, proposal.path, proposal.target ?? "");
-  else if (proposal.operation === "delete") {
+  } else if (proposal.operation === "delete") {
     if (
       !files[proposal.path] &&
       !Object.keys(files).some((p) => p.startsWith(proposal.path + "/"))
@@ -156,6 +184,55 @@ export function applyProposal(project: Project, proposal: Proposal): Project {
     revision: project.revision + 1,
     updatedAt: new Date().toISOString(),
   };
+}
+// A generated project is one revision: validate every file before returning any changes.
+export function applyProposals(
+  project: Project,
+  proposals: Proposal[],
+): Project {
+  if (
+    !proposals.length ||
+    proposals.length > 10 ||
+    new Set(proposals.map((p) => p.path)).size !== proposals.length
+  )
+    throw new Error("한 작업에는 서로 다른 파일 1~10개를 변경할 수 있습니다.");
+  let files = project.files;
+  for (const proposal of proposals) {
+    if (!["create", "write"].includes(proposal.operation))
+      throw new Error("삭제와 이름 변경은 개별 확인이 필요합니다.");
+    files = applyProposal({ ...project, files }, proposal).files;
+  }
+  return {
+    ...project,
+    files,
+    revision: project.revision + 1,
+    updatedAt: new Date().toISOString(),
+  };
+}
+// Server replies may arrive after the user has continued typing or renamed a file.
+export function mergeRemoteFiles(
+  base: Project["files"],
+  local: Project["files"],
+  remote: Project["files"],
+) {
+  const files = { ...remote },
+    changed = new Set<string>();
+  for (const path of new Set([...Object.keys(base), ...Object.keys(local)])) {
+    const a = base[path],
+      b = local[path];
+    if (
+      a?.kind === b?.kind &&
+      a?.content === b?.content &&
+      a?.mime === b?.mime &&
+      a?.size === b?.size
+    )
+      continue;
+    changed.add(path);
+    if (b) files[path] = b;
+    else delete files[path];
+  }
+  validateFiles(files);
+  return { files, changed };
 }
 export function language(path: string) {
   const ext = path.split(".").at(-1)?.toLowerCase();

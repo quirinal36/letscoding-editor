@@ -29,8 +29,8 @@ GitHub → `quirinal36` Settings → Developer settings → GitHub Apps에서 �
 | 항목 | 설정 |
 | --- | --- |
 | 이름 / slug | LetsCoding Editor / 사용 가능한 slug |
-| Homepage | `https://editor.letscoding.kr` |
-| Callback | `https://editor.letscoding.kr/api/github/callback` |
+| Homepage | `https://create.letscoding.kr` |
+| Callback | `https://create.letscoding.kr/api/github/callback` (기존 editor 콜백도 유지) |
 | Expire user authorization tokens | 켬 |
 | Request user authorization during installation | 끔 — 에디터가 시작한 state/PKCE 흐름으로 별도 승인 |
 | Webhook | 끔 |

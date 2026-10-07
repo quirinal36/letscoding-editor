@@ -76,6 +76,7 @@ test("signed uploads validate Storage info size and reject forged sizes or forei
   const projectId = crypto.randomUUID();
   let size: number | undefined = 68;
   let saves = 0;
+  let accountBytes = 0;
   const project = {
     id: projectId,
     title: "Upload regression",
@@ -103,12 +104,25 @@ test("signed uploads validate Storage info size and reject forged sizes or forei
       if (pathname.startsWith("/storage/v1/object/info/")) {
         return Response.json({ size, metadata: {} });
       }
+      if (pathname === "/rest/v1/editor_projects") {
+        const url = new URL(request.url);
+        assert.equal(url.searchParams.get("owner_id"), `eq.${user.id}`);
+        assert.equal(url.searchParams.get("deleted_at"), "is.null");
+        assert.equal(url.searchParams.get("id"), `neq.${projectId}`);
+        return Response.json([
+          { editor_files: [{ size_bytes: accountBytes }] },
+        ]);
+      }
       assert.equal(pathname, "/rest/v1/rpc/editor_save_project");
       saves++;
       return Response.json({ revision: 1, metadataRevision: 1 });
     };
     await save(user, project, 0);
     assert.equal(saves, 1);
+    accountBytes = 100 * 1024 * 1024;
+    await assert.rejects(save(user, project, 0), /개인 저장공간 100MB/);
+    assert.equal(saves, 1);
+    accountBytes = 0;
     size = 69;
     await assert.rejects(save(user, project, 0), /업로드 파일 크기/);
     size = undefined;

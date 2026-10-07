@@ -1,5 +1,5 @@
 import type { Project } from "./types";
-import { validateFiles } from "./vfs";
+import { validateFiles, assertStorageLimit } from "./vfs";
 function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open("letscoding-editor", 1);
@@ -46,15 +46,28 @@ export async function localSave(
       store = tx.objectStore("projects");
     let saved: Project;
     let failure: Error | undefined;
-    const req = store.get(project.id);
+    const req = store.getAll();
     req.onsuccess = () => {
-      const current = req.result as Project | undefined;
+      const projects = req.result as Project[];
+      const current = projects.find((item) => item.id === project.id);
       if ((current?.revision ?? -1) !== expectedRevision) {
         failure = new Error(
           "다른 탭에서 프로젝트를 저장했습니다. 다시 열어 최신 내용을 확인하세요.",
         );
         tx.abort();
         return;
+      }
+      if (!project.deletedAt) {
+        try {
+          const used = projects
+            .filter((item) => !item.deletedAt && item.id !== project.id)
+            .reduce((sum, item) => sum + validateFiles(item.files).total, 0);
+          assertStorageLimit(used + validateFiles(project.files).total);
+        } catch (e) {
+          failure = e instanceof Error ? e : new Error(String(e));
+          tx.abort();
+          return;
+        }
       }
       saved = {
         ...project,

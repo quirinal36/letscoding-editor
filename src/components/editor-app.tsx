@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- User VFS images are private data/blob URLs and cannot use remote optimization. */
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -25,14 +26,15 @@ import {
   FolderPlus,
   ImagePlus,
   LoaderCircle,
-  Menu,
+  LogOut,
+  UserRound,
+  Pencil,
   MessageSquare,
   Moon,
   MoreHorizontal,
   Paperclip,
   Play,
   Plus,
-  Search,
   Settings2,
   Sparkles,
   Square,
@@ -57,15 +59,19 @@ import {
   saveProject,
   uploadAttachments,
 } from "@/lib/client";
-import { createProject, TEMPLATES } from "@/lib/templates";
+import { createProject } from "@/lib/templates";
+import { monthlyUsageLabel } from "@/lib/usage";
 import {
   applyProposal,
+  applyProposals,
   assertPath,
   language,
   LIMITS,
   moveFile,
+  mergeRemoteFiles,
   textFile,
   validateFiles,
+  formatBytes,
 } from "@/lib/vfs";
 import { createArtifact, importArtifact, mimeFor } from "@/lib/artifact";
 import { demoAnswer } from "@/lib/demo-ai";
@@ -87,6 +93,10 @@ const CodeDiff = dynamic(
 );
 type Modal =
   | "projects"
+  | "rename-project"
+  | "delete-project"
+  | "duplicate-project"
+  | "delete-thread"
   | "new-file"
   | "new-folder"
   | "rename"
@@ -104,11 +114,27 @@ const fileReader = (file: Blob) =>
     reader.onerror = () => reject(new Error("파일을 읽지 못했습니다."));
     reader.readAsDataURL(file);
   });
+const formatProjectDate = (value?: string) =>
+  value
+    ? new Date(value)
+        .toLocaleString("ko-KR", {
+          timeZone: "Asia/Seoul",
+          year: "numeric",
+          month: "numeric",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: true,
+        })
+        .replace(/\.\s(?=오[전후])/, " ")
+    : "기록 없음";
 export function EditorApp({ config }: { config: AppConfig }) {
   const [user, setUser] = useState<SessionUser | null>(
       config.demo ? { id: "demo", role: "student" } : null,
     ),
     [project, setProject] = useState<Project | null>(null),
+    [titleDraft, setTitleDraft] = useState<string | null>(null),
     [projects, setProjects] = useState<Project[]>([]),
     [ready, setReady] = useState(false),
     [email, setEmail] = useState("");
@@ -120,8 +146,8 @@ export function EditorApp({ config }: { config: AppConfig }) {
     [chatVisible, setChatVisible] = useState(true),
     [tabs, setTabs] = useState<string[]>(["index.html", "style.css"]),
     [active, setActive] = useState("index.html"),
-    [pane, setPane] = useState<"code" | "preview">("code"),
-    [split, setSplit] = useState(false),
+    [requestedPane, setPane] = useState<"code" | "preview">("code"),
+    [requestedSplit, setSplit] = useState(false),
     [cursor, setCursor] = useState({ line: 1, column: 1 });
   const [status, setStatus] = useState<"saved" | "saving" | "dirty" | "error">(
       "saved",
@@ -132,8 +158,15 @@ export function EditorApp({ config }: { config: AppConfig }) {
     [name, setName] = useState(""),
     [target, setTarget] = useState(""),
     [formError, setFormError] = useState(""),
-    [template, setTemplate] = useState("game"),
+    [projectDeletePending, setProjectDeletePending] = useState(false),
+    [projectDuplicatePending, setProjectDuplicatePending] = useState(false),
+    [accountStorage, setAccountStorage] = useState<{
+      usedBytes: number;
+      limitBytes: number;
+    } | null>(null),
+    [storageError, setStorageError] = useState(false),
     [search, setSearch] = useState(""),
+    [fileFilter, setFileFilter] = useState(""),
     [expanded, setExpanded] = useState<Set<string>>(new Set()),
     [selected, setSelected] = useState("index.html"),
     [changed, setChanged] = useState<Set<string>>(new Set()),
@@ -141,15 +174,18 @@ export function EditorApp({ config }: { config: AppConfig }) {
   const [threadId, setThreadId] = useState(""),
     [prompt, setPrompt] = useState(""),
     [busy, setBusy] = useState(false),
-    [streamText, setStreamText] = useState(""),
-    [model, setModel] = useState(config.models.find((m) => !m.image)?.id ?? ""),
+    [codeCharacters, setCodeCharacters] = useState(0),
+    [pendingMessage, setPendingMessage] = useState<ChatMessage | null>(null),
     [selection, setSelection] = useState(""),
     [attachSelection, setAttachSelection] = useState(false),
     [attachments, setAttachments] = useState<string[]>([]),
     [logs, setLogs] = useState<ConsoleEntry[]>([]),
     [diff, setDiff] = useState<Proposal | null>(null),
-    [jump, setJump] = useState(0),
+    [jump, setJump] = useState<{ line: number }>(),
     [usage, setUsage] = useState<Usage | null>(null),
+    [usageStatus, setUsageStatus] = useState<"loading" | "ready" | "error">(
+      "loading",
+    ),
     [usageDays, setUsageDays] = useState<
       {
         date: string;
@@ -159,7 +195,8 @@ export function EditorApp({ config }: { config: AppConfig }) {
       }[]
     >([]),
     [uploadProgress, setUploadProgress] = useState(""),
-    [usageClock] = useState(() => Date.now()),
+    [storageProgress, setStorageProgress] = useState(""),
+    [usageClock, setUsageClock] = useState(() => Date.now()),
     [prices, setPrices] = useState<
       { id: string; inputPrice: number | null; outputPrice: number | null }[]
     >([]);
@@ -172,11 +209,17 @@ export function EditorApp({ config }: { config: AppConfig }) {
     isListed: true,
     thumbnailPath: "",
   });
+  const noFileTabs = !tabs.some((path) => project?.files[path]);
+  const pane = noFileTabs && !diff ? "preview" : requestedPane;
+  const split = !noFileTabs && requestedSplit;
   const current = useRef<Project | null>(null),
+    persistedProject = useRef<Project | null>(null),
     persistedRevision = useRef(0),
     dirty = useRef(false),
     saveQueue = useRef<Promise<unknown>>(Promise.resolve()),
     abort = useRef<AbortController | null>(null),
+    saveUpload = useRef<AbortController | null>(null),
+    fileImport = useRef<AbortController | null>(null),
     fileInput = useRef<HTMLInputElement>(null),
     imageInput = useRef<HTMLInputElement>(null),
     chatBottom = useRef<HTMLDivElement>(null),
@@ -185,6 +228,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
     pendingCode = useRef("");
   const thread =
     project?.threads.find((t) => t.id === threadId) ?? project?.threads[0];
+  const deletingProject = projects.find((item) => item.id === target);
   const fail = useCallback((e: unknown) => {
     setError(e instanceof Error ? e.message : String(e));
   }, []);
@@ -192,30 +236,61 @@ export function EditorApp({ config }: { config: AppConfig }) {
     current.current = next;
     setProject(next);
   }
-  async function refreshUsage() {
+  async function receiveProject(next: Project, base: Project) {
+    const hydrated = await hydrateProject(next);
+    if (current.current?.id !== base.id) return;
+    if (hydrated.revision < persistedRevision.current)
+      throw new Error(
+        "서버 응답보다 최근에 저장한 내용이 있습니다. 현재 편집은 유지됩니다. 다시 확인해주세요.",
+      );
+    const { files, changed } = mergeRemoteFiles(
+      base.files,
+      current.current.files,
+      hydrated.files,
+    );
+    persistedProject.current = hydrated;
+    persistedRevision.current = hydrated.revision;
+    const title =
+      current.current.title !== base.title
+        ? current.current.title
+        : hydrated.title;
+    const hasChanges = changed.size > 0 || title !== hydrated.title;
+    dirty.current = hasChanges;
+    setUnsaved(changed);
+    setStatus(hasChanges ? "dirty" : "saved");
+    assign({ ...hydrated, files, title });
+  }
+  const refreshUsage = useCallback(async () => {
     if (config.demo) return;
+    setUsageStatus("loading");
     try {
       const result = await (await api("usage")).json();
       setUsage(result);
+      setUsageClock(Date.now());
       setUsageDays(result.days ?? []);
+      setUsageStatus("ready");
     } catch {
-      /* Usage absence must not disable editing. */
+      setUsageStatus("error");
     }
-  }
+  }, [config.demo]);
   const flush = useCallback(
     async (advance = true) => {
       const run = async () => {
         const snapshot = current.current;
         if (!snapshot) return;
         setStatus("saving");
+        const controller = new AbortController();
+        saveUpload.current = controller;
         try {
           const saved = await saveProject(
             snapshot,
             persistedRevision.current,
             config.demo,
             advance,
+            { signal: controller.signal, onProgress: setStorageProgress },
           );
           persistedRevision.current = saved.revision;
+          persistedProject.current = saved;
           if (current.current === snapshot) {
             current.current = saved;
             setProject(saved);
@@ -223,7 +298,19 @@ export function EditorApp({ config }: { config: AppConfig }) {
             setUnsaved(new Set());
             setStatus("saved");
           } else if (current.current) {
-            const merged = { ...current.current, revision: saved.revision };
+            const merged = {
+              ...current.current,
+              revision: saved.revision,
+              files: Object.fromEntries(
+                Object.entries(current.current.files).map(([path, file]) => [
+                  path,
+                  file.kind === saved.files[path]?.kind &&
+                  file.content === saved.files[path]?.content
+                    ? saved.files[path]
+                    : file,
+                ]),
+              ),
+            };
             current.current = merged;
             setProject(merged);
             dirty.current = true;
@@ -241,8 +328,15 @@ export function EditorApp({ config }: { config: AppConfig }) {
         } catch (e) {
           setStatus("error");
           dirty.current = true;
-          fail(e);
+          if (controller.signal.aborted)
+            setNotice(
+              "업로드를 취소했습니다. 파일은 편집기에 남아 있으며 저장 다시 시도로 올릴 수 있습니다.",
+            );
+          else fail(e);
           throw e;
+        } finally {
+          saveUpload.current = null;
+          setStorageProgress("");
         }
       };
       const promise = saveQueue.current.catch(() => {}).then(run);
@@ -251,6 +345,21 @@ export function EditorApp({ config }: { config: AppConfig }) {
     },
     [config.demo, fail],
   );
+  async function showProjects() {
+    if (busy) return;
+    try {
+      if (current.current) await flush();
+      const available = await listProjects(config.demo);
+      setProjects(available);
+      current.current = null;
+      persistedProject.current = null;
+      dirty.current = false;
+      setProject(null);
+      setModal(null);
+    } catch (e) {
+      fail(e);
+    }
+  }
   async function openProject(next: Project) {
     if (busy) return;
     if (dirty.current) await flush();
@@ -260,17 +369,28 @@ export function EditorApp({ config }: { config: AppConfig }) {
           await (await api("get", { projectId: next.id })).json(),
         );
     persistedRevision.current = hydrated.revision;
+    persistedProject.current = hydrated;
     dirty.current = false;
     assign(hydrated);
+    setTitleDraft(null);
     setThreadId(hydrated.threads[0]?.id ?? "");
     const first = hydrated.files["index.html"]
       ? "index.html"
       : (Object.keys(hydrated.files).find(
           (p) => hydrated.files[p].kind !== "directory",
         ) ?? "");
-    setTabs(first ? [first] : []);
+    setTabs([]);
+    setFileFilter("");
     setActive(first);
     setSelected(first);
+    setPane("preview");
+    setSplit(false);
+    setExplorer(true);
+    setChatVisible(true);
+    setPrompt("");
+    setAttachments([]);
+    setSelection("");
+    setLogs([]);
     setStatus("saved");
     setUnsaved(new Set());
     setModal(null);
@@ -284,6 +404,42 @@ export function EditorApp({ config }: { config: AppConfig }) {
     );
   }
   useEffect(() => {
+    if (project || !user) return;
+    const controller = new AbortController();
+    const refreshStorage = async () => {
+      setAccountStorage(null);
+      setStorageError(false);
+      if (config.demo) {
+        setAccountStorage({
+          usedBytes: projects.reduce(
+            (total, item) => total + validateFiles(item.files).total,
+            0,
+          ),
+          limitBytes: LIMITS.account,
+        });
+      } else {
+        void api("storage", {}, controller.signal)
+          .then((response) => response.json())
+          .then((value) => {
+            if (
+              !Number.isSafeInteger(value.usedBytes) ||
+              value.usedBytes < 0 ||
+              !Number.isSafeInteger(value.limitBytes) ||
+              value.limitBytes <= 0
+            )
+              throw new Error("Invalid storage usage");
+            if (!controller.signal.aborted) setAccountStorage(value);
+          })
+          .catch(() => {
+            if (!controller.signal.aborted) setStorageError(true);
+          });
+      }
+    };
+    void refreshStorage();
+    return () => controller.abort();
+  }, [project, user, projects, config.demo]);
+  useEffect(() => {
+    let cancelled = false;
     const init = async () => {
       try {
         setTheme(localStorage.getItem("editor-theme") ?? "dark");
@@ -301,26 +457,16 @@ export function EditorApp({ config }: { config: AppConfig }) {
           }
           const account = await (await api("session")).json();
           setUser(account);
+          void refreshUsage();
         }
         let available = await listProjects(config.demo);
+        if (cancelled) return;
         if (config.demo && !available.length) {
           const sample = createProject("game", "나의 첫 클릭 게임");
           await saveProject(sample, -1, true);
           available = await listProjects(true);
         }
         setProjects(available);
-        const first = available[0];
-        if (first) {
-          const hydrated = config.demo
-            ? first
-            : await hydrateProject(
-                await (await api("get", { projectId: first.id })).json(),
-              );
-          current.current = hydrated;
-          persistedRevision.current = hydrated.revision;
-          setProject(hydrated);
-          setThreadId(hydrated.threads[0]?.id ?? "");
-        } else setModal("projects");
       } catch (e) {
         fail(e);
       } finally {
@@ -335,7 +481,10 @@ export function EditorApp({ config }: { config: AppConfig }) {
       }
     };
     void init();
-  }, [config.demo, config.cloud, fail]);
+    return () => {
+      cancelled = true;
+    };
+  }, [config.demo, config.cloud, fail, refreshUsage]);
   useEffect(() => {
     if (!config.demo)
       void fetch("/api/models")
@@ -389,8 +538,18 @@ export function EditorApp({ config }: { config: AppConfig }) {
     return () => channel.close();
   }, [projectId]);
   useEffect(() => {
-    chatBottom.current?.scrollIntoView({ block: "nearest" });
-  }, [thread?.messages.length, streamText]);
+    const frame = requestAnimationFrame(() => {
+      const messages = chatBottom.current?.parentElement;
+      messages?.scrollTo({ top: messages.scrollHeight, behavior: "instant" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [
+    threadId,
+    thread?.messages.length,
+    pendingMessage?.id,
+    busy,
+    codeCharacters,
+  ]);
   useEffect(() => {
     if (!notice) return;
     const timeout = setTimeout(() => setNotice(""), 7000);
@@ -441,6 +600,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
     }
   }
   function openFile(path: string) {
+    setJump(undefined);
     setActive(path);
     setSelected(path);
     setTabs((prev) => (prev.includes(path) ? prev : [...prev, path]));
@@ -512,8 +672,23 @@ export function EditorApp({ config }: { config: AppConfig }) {
   async function create(e: React.FormEvent) {
     e.preventDefault();
     try {
-      const title =
-        name.trim() || TEMPLATES.find((t) => t.id === template)!.title;
+      if (modal === "rename-project") {
+        const item = projects.find((item) => item.id === target);
+        if (!item) throw new Error("프로젝트를 찾을 수 없습니다.");
+        const title = name.trim();
+        if (!title) throw new Error("새 프로젝트 이름을 입력하세요.");
+        const next = config.demo
+          ? await saveProject({ ...item, title }, item.revision, true)
+          : await (
+              await api("rename-project", { projectId: item.id, title })
+            ).json();
+        setProjects(await listProjects(config.demo));
+        if (project?.id === item.id) await openProject(next);
+        setModal(null);
+        return;
+      }
+      const title = name.trim() || "새 프로젝트";
+      const template = "blank";
       const next = config.demo
         ? await saveProject(createProject(template, title), -1, true)
         : await (await api("create", { template, title })).json();
@@ -526,80 +701,107 @@ export function EditorApp({ config }: { config: AppConfig }) {
   async function projectAction(
     action: "delete" | "duplicate" | "rename",
     item: Project,
+    confirmed = false,
   ) {
+    if (action === "duplicate" && !confirmed) {
+      setTarget(item.id);
+      setFormError("");
+      setModal("duplicate-project");
+      return;
+    }
+    if (action === "duplicate" && projectDuplicatePending) return;
     try {
       if (action === "delete") {
         setTarget(item.id);
-        setModal("projects");
-        if (
-          !window.confirm(
-            `${item.title} 프로젝트를 삭제할까요? 30일간 보관됩니다.`,
-          )
-        )
-          return;
+        setName("");
+        setFormError("");
+        setModal("delete-project");
+      } else if (action === "duplicate") {
+        setProjectDuplicatePending(true);
         if (config.demo)
           await saveProject(
-            { ...item, deletedAt: new Date().toISOString() },
-            item.revision,
+            {
+              ...structuredClone(item),
+              id: crypto.randomUUID(),
+              title: item.title + " 복사본",
+              loungeId: undefined,
+              revision: 0,
+              threads: [
+                {
+                  id: crypto.randomUUID(),
+                  title: "새 대화",
+                  autoApply: true,
+                  messages: [],
+                },
+              ],
+              deployments: [],
+            },
+            -1,
             true,
           );
-        else await api("delete", { projectId: item.id });
+        else await api("duplicate", { projectId: item.id });
         setProjects(await listProjects(config.demo));
-        if (project?.id === item.id) {
-          current.current = null;
-          setProject(null);
-        }
-      } else if (action === "duplicate") {
-        const next = config.demo
-          ? await saveProject(
-              {
-                ...structuredClone(item),
-                id: crypto.randomUUID(),
-                title: item.title + " 복사본",
-                loungeId: undefined,
-                revision: 0,
-                threads: [
-                  {
-                    id: crypto.randomUUID(),
-                    title: "새 대화",
-                    autoApply: false,
-                    messages: [],
-                  },
-                ],
-                deployments: [],
-              },
-              -1,
-              true,
-            )
-          : await (await api("duplicate", { projectId: item.id })).json();
-        setProjects(await listProjects(config.demo));
-        await openProject(next);
+        setNotice("프로젝트 복사본을 만들었습니다.");
+        setModal(null);
       } else {
-        const title = window.prompt("프로젝트 이름", item.title)?.trim();
-        if (!title) return;
-        const next = config.demo
-          ? await saveProject({ ...item, title }, item.revision, true)
-          : await (
-              await api("rename-project", { projectId: item.id, title })
-            ).json();
-        setProjects(await listProjects(config.demo));
-        if (project?.id === item.id) await openProject(next);
+        setTarget(item.id);
+        setName(item.title);
+        setFormError("");
+        setModal("rename-project");
       }
     } catch (e) {
-      fail(e);
+      setFormError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProjectDuplicatePending(false);
+    }
+  }
+  async function deleteProject(e: React.FormEvent) {
+    e.preventDefault();
+    if (projectDeletePending) return;
+    if (!deletingProject || name !== deletingProject.title) {
+      setFormError("프로젝트 이름을 정확하게 입력해주세요.");
+      return;
+    }
+    setProjectDeletePending(true);
+    try {
+      if (config.demo)
+        await saveProject(
+          { ...deletingProject, deletedAt: new Date().toISOString() },
+          deletingProject.revision,
+          true,
+        );
+      else await api("delete", { projectId: deletingProject.id, title: name });
+      setProjects(await listProjects(config.demo));
+      if (project?.id === deletingProject.id) {
+        current.current = null;
+        setProject(null);
+      }
+      setModal(null);
+      setNotice("프로젝트를 삭제했습니다.");
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProjectDeletePending(false);
     }
   }
   async function upload(files: FileList | File[] | null) {
-    if (!files || !project) return;
+    if (!files?.length || !project || fileImport.current || storageProgress)
+      return;
+    const base = current.current!;
+    const controller = new AbortController();
+    fileImport.current = controller;
     try {
-      let next = { ...current.current!.files },
+      let next: Project["files"] = {},
         index = 0;
       for (const file of Array.from(files)) {
+        controller.signal.throwIfAborted();
         setUploadProgress(`${++index}/${files.length} ${file.name}`);
         if (file.name.toLowerCase().endsWith(".zip")) {
           const imported = await importArtifact(await file.arrayBuffer());
           if (
-            Object.keys(imported).some((p) => next[p]) &&
+            Object.keys(imported).some(
+              (p) => next[p] || current.current?.files[p],
+            ) &&
             !window.confirm("같은 이름의 파일을 덮어쓸까요?")
           )
             continue;
@@ -608,7 +810,10 @@ export function EditorApp({ config }: { config: AppConfig }) {
           assertPath(file.name);
           if (file.size > LIMITS.upload)
             throw new Error(`${file.name}: 파일당 5MB 이하만 가능합니다.`);
-          if (next[file.name] && !window.confirm(`${file.name}을 덮어쓸까요?`))
+          if (
+            (next[file.name] || current.current?.files[file.name]) &&
+            !window.confirm(`${file.name}을 덮어쓸까요?`)
+          )
             continue;
           next[file.name] = /\.(html?|css|m?js|ts|json|md|txt|svg)$/i.test(
             file.name,
@@ -622,11 +827,23 @@ export function EditorApp({ config }: { config: AppConfig }) {
               };
         }
       }
+      controller.signal.throwIfAborted();
+      if (current.current?.id !== base.id)
+        throw new Error("프로젝트가 바뀌어 파일 가져오기를 중단했습니다.");
+      for (const path of Object.keys(next))
+        if (current.current.files[path] !== base.files[path])
+          throw new Error(
+            `${path}: 가져오는 동안 파일이 변경되었습니다. 다시 가져와주세요.`,
+          );
+      next = { ...current.current.files, ...next };
+      validateFiles(next);
       mutateFiles(next);
       setNotice("파일을 가져왔습니다.");
     } catch (e) {
-      fail(e);
+      if (controller.signal.aborted) setNotice("파일 가져오기를 취소했습니다.");
+      else fail(e);
     } finally {
+      fileImport.current = null;
       setUploadProgress("");
       if (fileInput.current) fileInput.current.value = "";
     }
@@ -673,7 +890,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
             {
               id: crypto.randomUUID(),
               title: "새 대화",
-              autoApply: false,
+              autoApply: true,
               messages: [],
             },
           ],
@@ -682,46 +899,96 @@ export function EditorApp({ config }: { config: AppConfig }) {
         await flush(false);
         setThreadId(next.threads.at(-1)!.id);
       } else {
+        const base = persistedProject.current!;
         const next = await (
           await api("thread", { projectId: project.id })
         ).json();
-        assign(await hydrateProject(next));
+        await receiveProject(next, base);
         setThreadId(next.threads.at(-1)!.id);
       }
     } catch (e) {
       fail(e);
     }
   }
-  async function toggleAuto() {
-    if (!project || !thread || busy) return;
+  async function deleteThread(e: React.FormEvent) {
+    e.preventDefault();
+    if (!project || busy) return;
     try {
+      if (dirty.current) await flush();
+      const base = current.current!;
+      let next: Project;
       if (config.demo) {
-        assign({
-          ...project,
-          threads: project.threads.map((t) =>
-            t.id === thread.id ? { ...t, autoApply: !t.autoApply } : t,
-          ),
-        });
+        const threads = base.threads.filter((thread) => thread.id !== target);
+        if (!threads.length)
+          threads.push({
+            id: crypto.randomUUID(),
+            title: "새 대화",
+            autoApply: true,
+            messages: [],
+          });
+        next = { ...base, threads };
+        assign(next);
         await flush(false);
       } else {
-        const next = await (
-          await api("thread", {
-            projectId: project.id,
-            threadId: thread.id,
-            autoApply: !thread.autoApply,
-          })
+        const savedBase = persistedProject.current!;
+        next = await (
+          await api("delete-thread", { projectId: base.id, threadId: target })
         ).json();
-        assign(await hydrateProject(next));
+        await receiveProject(next, savedBase);
       }
+      setThreadId(next.threads.at(-1)!.id);
+      setModal(null);
+      setNotice("대화를 삭제했습니다.");
     } catch (e) {
-      fail(e);
+      setFormError(e instanceof Error ? e.message : String(e));
     }
+  }
+  async function applyGenerated(message: ChatMessage) {
+    if (
+      message.status !== "complete" ||
+      message.proposals.some((p) => p.requiresReview)
+    )
+      return;
+    const proposals = message.proposals.filter(
+      (p) =>
+        p.status === "pending" && ["create", "write"].includes(p.operation),
+    );
+    if (!proposals.length) return;
+    if (dirty.current) await flush();
+    const base = current.current!;
+    if (config.demo) {
+      const next = applyProposals(base, proposals);
+      for (const proposal of proposals) proposal.status = "applied";
+      assign(next);
+      await flush();
+    } else {
+      const savedBase = persistedProject.current!;
+      const next = await (
+        await api("approve", {
+          projectId: base.id,
+          proposalIds: proposals.map((p) => p.id),
+          automatic: true,
+        })
+      ).json();
+      await receiveProject(next, savedBase);
+    }
+    setChanged((prev) => new Set([...prev, ...proposals.map((p) => p.path)]));
+    setDiff(null);
+    setSplit(false);
+    setPane("preview");
+    setNotice("작품에 반영했어요. 미리보기에서 확인해보세요.");
   }
   async function review(proposal: Proposal, apply: boolean) {
     if (!project) return;
     try {
       if (dirty.current) await flush();
       const base = current.current!;
+      const message = base.threads
+        .flatMap((t) => t.messages)
+        .find((m) => m.proposals.some((p) => p.id === proposal.id));
+      const batch = message?.proposals.some((p) => p.requiresReview)
+        ? message.proposals.filter((p) => p.status === "pending")
+        : null;
       let next: Project;
       if (config.demo) {
         const stored = base.threads
@@ -729,23 +996,34 @@ export function EditorApp({ config }: { config: AppConfig }) {
           .flatMap((m) => m.proposals)
           .find((p) => p.id === proposal.id);
         if (!stored) throw new Error("변경안을 찾을 수 없습니다.");
-        next = apply ? applyProposal(base, stored) : base;
-        stored.status = apply ? "applied" : "rejected";
+        next = apply
+          ? batch
+            ? applyProposals(base, batch)
+            : applyProposal(base, stored)
+          : base;
+        for (const item of batch ?? [stored])
+          item.status = apply ? "applied" : "rejected";
         assign({ ...next, threads: [...next.threads] });
         await flush(apply);
       } else {
+        const savedBase = persistedProject.current!;
         next = await (
           await api(apply ? "approve" : "reject", {
             projectId: base.id,
-            proposalId: proposal.id,
+            ...(batch
+              ? { proposalIds: batch.map((p) => p.id) }
+              : { proposalId: proposal.id }),
           })
         ).json();
-        persistedRevision.current = next.revision;
-        assign(await hydrateProject(next));
+        await receiveProject(next, savedBase);
       }
       if (apply) {
         setChanged(
-          (prev) => new Set([...prev, proposal.target ?? proposal.path]),
+          (prev) =>
+            new Set([
+              ...prev,
+              ...(batch ?? [proposal]).map((p) => p.target ?? p.path),
+            ]),
         );
         if (proposal.operation === "rename") {
           setTabs((t) =>
@@ -770,8 +1048,21 @@ export function EditorApp({ config }: { config: AppConfig }) {
     if (!text.trim() || !project || !thread || busy) return;
     setError("");
     setBusy(true);
+    setCodeCharacters(0);
+    setPendingMessage(
+      config.demo
+        ? null
+        : {
+            id: crypto.randomUUID(),
+            role: "user",
+            text,
+            proposals: [],
+            status: "complete",
+            images: [...attachments],
+            selection: attachSelection ? selection : undefined,
+          },
+    );
     setPrompt("");
-    setStreamText("");
     const controller = new AbortController();
     abort.current = controller;
     try {
@@ -797,7 +1088,6 @@ export function EditorApp({ config }: { config: AppConfig }) {
         for (const token of answer.text) {
           if (controller.signal.aborted) break;
           partial += token;
-          setStreamText(partial);
           await new Promise((r) => setTimeout(r, 8));
         }
         answer.text = partial;
@@ -806,11 +1096,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
         threadNow.messages.push(answer);
         assign({ ...current.current!, threads: [...base.threads] });
         await flush(false);
-        setStreamText("");
-        if (threadNow.autoApply && !controller.signal.aborted)
-          for (const proposal of answer.proposals)
-            if (["create", "write"].includes(proposal.operation))
-              await review(proposal, true);
+        if (!controller.signal.aborted) await applyGenerated(answer);
       } else {
         if (!config.ai)
           throw new Error("실제 AI는 키·모델·예산 설정 후 사용할 수 있습니다.");
@@ -820,10 +1106,18 @@ export function EditorApp({ config }: { config: AppConfig }) {
             projectId: base.id,
             threadId: thread.id,
             text,
-            model,
+            model:
+              config.models.find(
+                (m) => !m.image && (!attachments.length || m.vision),
+              )?.id ?? "",
             activeFile: active,
             selection: attachSelection ? selection : undefined,
-            images: await uploadAttachments(attachments, project.id, thread.id),
+            images: await uploadAttachments(
+              attachments,
+              project.id,
+              thread.id,
+              controller.signal,
+            ),
             previewErrors: logs
               .filter((l) => l.level === "error")
               .map(({ text, path, line }) => ({ text, path, line })),
@@ -832,10 +1126,10 @@ export function EditorApp({ config }: { config: AppConfig }) {
         );
         const reader = response.body!.getReader(),
           decoder = new TextDecoder();
-        let buffer = "",
-          partial = "";
+        let buffer = "";
         let message: ChatMessage | undefined;
-        while (true) {
+        let streamError = "";
+        while (!message) {
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
@@ -844,33 +1138,47 @@ export function EditorApp({ config }: { config: AppConfig }) {
           for (const line of lines) {
             if (!line) continue;
             const event = JSON.parse(line);
-            if (event.type === "delta") {
-              partial += event.text;
-              setStreamText(partial);
+            if (
+              event.type === "progress" &&
+              Number.isSafeInteger(event.characters) &&
+              event.characters >= 0
+            )
+              setCodeCharacters(event.characters);
+            if (event.type === "error") {
+              streamError = event.error;
+              setError(streamError);
             }
-            if (event.type === "error") setError(event.error);
             if (event.type === "done") message = event.message;
           }
         }
+        await reader.cancel();
+        if (!message)
+          throw new Error(
+            streamError ||
+              "AI 연결이 완료되기 전에 끊겼습니다. 대화 내역을 확인하고 다시 시도해주세요.",
+          );
         if (dirty.current) await flush();
+        const savedBase = persistedProject.current!;
         const latest = await (await api("get", { projectId: base.id })).json();
-        persistedRevision.current = latest.revision;
-        assign(await hydrateProject(latest));
-        setStreamText("");
-        if (threadNow.autoApply && message)
-          for (const proposal of message.proposals)
-            if (["write", "create"].includes(proposal.operation))
-              await review(proposal, true);
+        await receiveProject(latest, savedBase);
+        setPendingMessage(null);
+        if (message) await applyGenerated(message);
         await refreshUsage();
       }
       setAttachments([]);
       setAttachSelection(false);
     } catch (e) {
-      if (!(e instanceof DOMException && e.name === "AbortError")) fail(e);
+      if (e instanceof DOMException && e.name === "TimeoutError")
+        fail(
+          new Error(
+            "AI 요청 시간이 초과되었습니다. 대화 내역을 확인하고 다시 시도해주세요.",
+          ),
+        );
+      else if (!(e instanceof DOMException && e.name === "AbortError")) fail(e);
       else setNotice("응답을 중단했습니다. 부분 응답은 대화에 보관됩니다.");
     } finally {
       setBusy(false);
-      setStreamText("");
+      setPendingMessage(null);
       abort.current = null;
     }
   }
@@ -904,11 +1212,11 @@ export function EditorApp({ config }: { config: AppConfig }) {
         );
       if (dirty.current) await flush();
       setBusy(true);
+      const savedBase = persistedProject.current!;
       const next = await (
         await api("image", { projectId: project.id, prompt })
       ).json();
-      persistedRevision.current = next.revision;
-      assign(await hydrateProject(next));
+      await receiveProject(next, savedBase);
       setPrompt("");
       setNotice("생성 이미지를 images/ 폴더에 저장했습니다.");
       await refreshUsage();
@@ -989,9 +1297,9 @@ export function EditorApp({ config }: { config: AppConfig }) {
           await api("deploy", { projectId: project.id, form: deployFields })
         ).json();
         if (dirty.current) await flush();
+        const savedBase = persistedProject.current!;
         const latest = await (await api("get", { projectId: next.id })).json();
-        persistedRevision.current = latest.revision;
-        assign(await hydrateProject(latest));
+        await receiveProject(latest, savedBase);
         setNotice("작품을 라운지에 배포했습니다.");
       }
       setModal(null);
@@ -1085,25 +1393,34 @@ export function EditorApp({ config }: { config: AppConfig }) {
   }
   function treeRows() {
     if (!project) return [];
+    const query = fileFilter.trim().toLowerCase();
     const paths = new Set(Object.keys(project.files));
     for (const path of [...paths]) {
       const parts = path.split("/");
       while (parts.pop() && parts.length) paths.add(parts.join("/"));
     }
+    // ponytail: at most 500 paths; index ancestors if the file limit grows.
     return [...paths]
       .sort((a, b) => a.localeCompare(b))
       .filter((path) =>
-        path
-          .split("/")
-          .slice(0, -1)
-          .every((_, i) =>
-            expanded.has(
-              path
-                .split("/")
-                .slice(0, i + 1)
-                .join("/"),
-            ),
-          ),
+        query
+          ? path.toLowerCase().includes(query) ||
+            [...paths].some(
+              (child) =>
+                child.startsWith(`${path}/`) &&
+                child.toLowerCase().includes(query),
+            )
+          : path
+              .split("/")
+              .slice(0, -1)
+              .every((_, i) =>
+                expanded.has(
+                  path
+                    .split("/")
+                    .slice(0, i + 1)
+                    .join("/"),
+                ),
+              ),
       );
   }
   const rows = treeRows(),
@@ -1122,7 +1439,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
           <div className="brand">
             <Code2 size={23} />
             <strong>
-              렛츠코딩 <span>EDITOR</span>
+              Let&apos;s Coding <span>Studio</span>
             </strong>
           </div>
           <p className="eyebrow">IDEAS BECOME REAL</p>
@@ -1290,77 +1607,103 @@ export function EditorApp({ config }: { config: AppConfig }) {
   const activeFile = project?.files[active],
     isMarkdown = active.endsWith(".md");
   return (
-    <div className="editor-app">
+    <div className={`editor-app ${!project ? "projects-view" : ""}`}>
       <a className="skip-link" href="#workspace">
         편집기로 건너뛰기
       </a>
       <header className="topbar">
-        <div className="brand">
+        <Link
+          className="brand"
+          href="/"
+          aria-label="Let's Coding Studio 메인페이지"
+          onNavigate={(e) => {
+            e.preventDefault();
+            void showProjects();
+          }}
+        >
           <Code2 size={21} />
           <strong>
-            렛츠코딩 <span>EDITOR</span>
+            Let&apos;s Coding <span>Studio</span>
           </strong>
-        </div>
-        <span className="topbar-divider" />
-        <button
-          className="project-picker"
-          onClick={() => {
-            setName("");
-            void listProjects(config.demo).then(setProjects).catch(fail);
-            setModal("projects");
-          }}
-          disabled={busy}
-        >
-          <span>{project?.title ?? "프로젝트 선택"}</span>
-          <ChevronDown size={14} />
-        </button>
-        <span className={`save-state ${status}`} role="status">
-          {status === "saving" ? (
-            <LoaderCircle size={13} className="spin" />
-          ) : status === "saved" ? (
-            <CheckCheck size={14} />
-          ) : (
-            <span className="dot" />
-          )}
-          {
-            {
-              saved: config.demo ? "이 기기에 저장됨" : "서버에 저장됨",
-              saving: "저장 중…",
-              dirty: "저장 대기",
-              error: "저장 실패 · 다시 시도",
-            }[status]
-          }
-        </span>
+        </Link>
+        {project && (
+          <>
+            <span className="topbar-divider" />
+            <input
+              className="project-title"
+              aria-label="프로젝트 이름 편집"
+              maxLength={100}
+              value={titleDraft ?? project.title}
+              onChange={(e) => {
+                setTitleDraft(e.target.value);
+                const title = e.target.value.trim();
+                if (
+                  !title ||
+                  !current.current ||
+                  title === current.current.title
+                )
+                  return;
+                assign({ ...current.current, title });
+                dirty.current = true;
+                setStatus("dirty");
+              }}
+              onBlur={() => setTitleDraft(null)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.nativeEvent.isComposing)
+                  e.currentTarget.blur();
+              }}
+            />
+          </>
+        )}
         <div className="topbar-spacer" />
-        <span className="mode-badge">
-          {config.demo ? "로컬 데모" : "라운지 연결"}
-        </span>
         <button
           className="icon-button"
           aria-label="테마 전환"
+          style={{ display: "none" }}
           onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
         >
           {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
         </button>
+        {project && (
+          <>
+            <span className={`save-state ${status}`} role="status">
+              {status === "saving" ? (
+                <LoaderCircle size={13} className="spin" />
+              ) : status === "saved" ? (
+                <CheckCheck size={14} />
+              ) : (
+                <span className="dot" />
+              )}
+              {
+                {
+                  saved: config.demo ? "이 기기에 저장됨" : "서버에 저장됨",
+                  saving: "저장 중…",
+                  dirty: "저장 대기",
+                  error: "저장 실패 · 다시 시도",
+                }[status]
+              }
+            </span>
+            <button
+              className="github-button"
+              disabled={busy}
+              onClick={() => setModal("github")}
+            >
+              GitHub
+            </button>
+            <button
+              className="deploy-button"
+              onClick={openDeploy}
+              disabled={!project || busy}
+            >
+              <Rocket size={15} />
+              {project?.loungeId ? "재배포" : "배포하기"}
+            </button>
+          </>
+        )}
         <button
-          className="github-button"
-          disabled={busy}
-          onClick={() => setModal("github")}
-        >
-          GitHub
-        </button>
-        <button
-          className="deploy-button"
-          onClick={openDeploy}
-          disabled={!project || busy}
-        >
-          <Rocket size={15} />
-          {project?.loungeId ? "재배포" : "배포하기"}
-        </button>
-        <button
-          className="avatar"
-          aria-label={config.demo ? "데모 사용자" : "로그아웃"}
-          title={user.email ?? "데모 사용자"}
+          className="account-button"
+          aria-label={config.demo ? "데모 계정" : "로그아웃"}
+          title={config.demo ? "데모 계정" : "로그아웃"}
           onClick={() => {
             if (config.demo)
               setNotice("외부 계정 없이 사용하는 개발 데모입니다.");
@@ -1370,16 +1713,16 @@ export function EditorApp({ config }: { config: AppConfig }) {
                 .then(() => location.reload());
           }}
         >
-          LC
+          {config.demo ? <UserRound size={16} /> : <LogOut size={16} />}
         </button>
       </header>
-      {config.demo && (
+      {config.demo && project && (
         <div className="demo-banner">
           <span>
             <span className="dot" /> 외부 계정 없이 개발 흐름을 체험하는 로컬
             데모입니다. AI는 예시 응답이며 실제 배포는 하지 않습니다.
           </span>
-          <button onClick={() => void download()}>
+          <button title="내 컴퓨터에 다운로드" onClick={() => void download()}>
             <Download size={13} /> 작업 ZIP 보관
           </button>
         </div>
@@ -1398,821 +1741,957 @@ export function EditorApp({ config }: { config: AppConfig }) {
           </button>
         </div>
       )}
-      <div className="workbench">
-        <aside className="activity-bar" aria-label="작업 공간 도구">
-          <button
-            aria-label="탐색기 접기/펼치기"
-            className={explorer ? "active" : ""}
-            onClick={() => setExplorer((v) => !v)}
-          >
-            <FolderOpen size={22} />
-          </button>
-          <button
-            aria-label="파일 검색"
-            onClick={() => showModal("quick-open")}
-          >
-            <Search size={22} />
-          </button>
-          <button
-            aria-label="AI 채팅 접기/펼치기"
-            className={chatVisible ? "active" : ""}
-            onClick={() => setChatVisible((v) => !v)}
-          >
-            <MessageSquare size={22} />
+      {!project ? (
+        <main className="projects-home" id="workspace" tabIndex={-1}>
+          <div className="projects-home-heading">
+            <div>
+              <h1>나의 프로젝트</h1>
+              <p>만들던 작품을 이어가거나 새로운 아이디어를 시작하세요.</p>
+            </div>
+            <div className="projects-home-actions">
+              <div
+                className="account-storage"
+                title="현재 프로젝트 파일 기준 (삭제한 프로젝트와 이전 버전 제외)"
+                aria-live="polite"
+              >
+                {accountStorage ? (
+                  <span>
+                    저장공간 {formatBytes(accountStorage.usedBytes)} /{" "}
+                    {(accountStorage.limitBytes / 1024 / 1024).toFixed(0)}MB
+                  </span>
+                ) : (
+                  <span>
+                    {storageError
+                      ? "저장공간 조회 실패"
+                      : "저장공간 확인 중..."}
+                  </span>
+                )}
+              </div>
+              <button
+                className="home-import"
+                onClick={() => setModal("github")}
+              >
+                <Download size={16} />
+                GitHub에서 가져오기
+              </button>
+              <button
+                className="primary"
+                onClick={() => {
+                  setName("");
+                  setFormError("");
+                  setModal("projects");
+                }}
+              >
+                <Plus size={18} />새 프로젝트 만들기
+              </button>
+            </div>
+          </div>
+          <div className="project-list">
+            {projects.map((item) => (
+              <div key={item.id}>
+                <button onClick={() => void openProject(item).catch(fail)}>
+                  <span>
+                    <strong>{item.title}</strong>
+                    <small className="project-meta">
+                      <time dateTime={item.updatedAt}>
+                        {formatProjectDate(item.updatedAt)}
+                      </time>
+                      <span>
+                        {formatBytes(
+                          item.storageBytes ?? validateFiles(item.files).total,
+                        )}
+                      </span>
+                    </small>
+                  </span>
+                </button>
+                <button
+                  aria-label={`${item.title} 이름 변경`}
+                  title="프로젝트 이름 바꾸기"
+                  onClick={() => void projectAction("rename", item)}
+                >
+                  <Pencil size={15} />
+                </button>
+                <button
+                  aria-label={`${item.title} 복제`}
+                  title="프로젝트 복사본 만들기"
+                  onClick={() => void projectAction("duplicate", item)}
+                >
+                  <Copy size={15} />
+                </button>
+                <button
+                  aria-label={`${item.title} 프로젝트 삭제`}
+                  title="프로젝트 삭제하기"
+                  onClick={() => void projectAction("delete", item)}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {!projects.length && (
+            <div className="empty-state">
+              <FolderOpen size={40} />
+              <h2>첫 프로젝트를 만들어보세요</h2>
+              <p>
+                프로젝트를 만들면 파일, 미리보기, LECO (레코)를 함께 사용할 수
+                있어요.
+              </p>
+            </div>
+          )}
+        </main>
+      ) : (
+        <div className="workbench">
+          <aside className="activity-bar" aria-label="작업 공간 도구">
+            <button
+              aria-label="탐색기 접기/펼치기"
+              className={explorer ? "active" : ""}
+              onClick={() => setExplorer((v) => !v)}
+            >
+              <FolderOpen size={22} />
+            </button>
+            <button
+              aria-label="AI 채팅 접기/펼치기"
+              className={chatVisible ? "active" : ""}
+              onClick={() => setChatVisible((v) => !v)}
+            >
+              <MessageSquare size={22} />
+            </button>
+            <div className="grow" />
+            <button
+              aria-label="사용량 보기"
+              onClick={() => {
+                void refreshUsage();
+                setModal("usage");
+              }}
+            >
+              <Settings2 size={21} />
+            </button>
+          </aside>
+          <Group orientation="horizontal" className="panels" id="workbench">
+            {explorer && (
+              <>
+                <Panel
+                  id="explorer"
+                  defaultSize="18%"
+                  minSize="160px"
+                  maxSize="40%"
+                >
+                  <section className="explorer-pane" aria-label="파일 탐색기">
+                    <div className="pane-heading">
+                      <span>탐색기</span>
+                      <button
+                        aria-label="탐색기 접기"
+                        title="탐색기 숨기기"
+                        onClick={() => setExplorer(false)}
+                      >
+                        <PanelLeftClose size={15} />
+                      </button>
+                    </div>
+                    <div className="tree-heading">
+                      <button
+                        className="tree-root"
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          move(dragPath.current, "");
+                        }}
+                      >
+                        <ChevronDown size={14} />
+                        <span>{project?.title ?? "프로젝트"}</span>
+                      </button>
+                      <div className="tree-actions">
+                        <button
+                          aria-label="새 파일"
+                          title="새 파일 만들기"
+                          onClick={() => showModal("new-file")}
+                        >
+                          <FilePlus2 size={15} />
+                        </button>
+                        <button
+                          aria-label="새 폴더"
+                          title="새 폴더 만들기"
+                          onClick={() => showModal("new-folder")}
+                        >
+                          <FolderPlus size={15} />
+                        </button>
+                        <button
+                          aria-label="파일 업로드"
+                          title="내 컴퓨터에서 파일 가져오기"
+                          disabled={!!uploadProgress || !!storageProgress}
+                          onClick={() => fileInput.current?.click()}
+                        >
+                          <Upload size={15} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="file-filter">
+                      <input
+                        type="search"
+                        aria-label="탐색기 파일 검색"
+                        placeholder="파일 이름 검색"
+                        value={fileFilter}
+                        onChange={(e) => setFileFilter(e.target.value)}
+                      />
+                    </div>
+                    <div
+                      className="file-tree"
+                      role="tree"
+                      aria-label="프로젝트 파일"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        if (e.dataTransfer.files.length) {
+                          e.preventDefault();
+                          void upload(e.dataTransfer.files);
+                        }
+                      }}
+                    >
+                      {rows.map((path) => {
+                        const folder =
+                          project?.files[path]?.kind === "directory" ||
+                          !project?.files[path];
+                        return (
+                          <div
+                            className="tree-entry"
+                            role="treeitem"
+                            aria-label={path}
+                            aria-level={path.split("/").length}
+                            aria-selected={selected === path}
+                            aria-expanded={
+                              folder
+                                ? !!fileFilter.trim() || expanded.has(path)
+                                : undefined
+                            }
+                            key={path}
+                            style={{
+                              paddingLeft:
+                                15 + (path.split("/").length - 1) * 16,
+                            }}
+                          >
+                            <button
+                              className={`tree-file ${active === path ? "selected" : ""}`}
+                              onClick={() => {
+                                setSelected(path);
+                                if (folder)
+                                  setExpanded((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(path)) next.delete(path);
+                                    else next.add(path);
+                                    return next;
+                                  });
+                                else openFile(path);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "F2") {
+                                  e.preventDefault();
+                                  showModal("rename", path);
+                                }
+                                if (e.key === "Delete") {
+                                  e.preventDefault();
+                                  showModal("delete", path);
+                                }
+                              }}
+                              draggable
+                              onDragStart={() => {
+                                dragPath.current = path;
+                              }}
+                              onDragOver={(e) => {
+                                if (folder) e.preventDefault();
+                              }}
+                              onDrop={(e) => {
+                                if (folder && !e.dataTransfer.files.length) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  move(dragPath.current, path);
+                                }
+                              }}
+                            >
+                              {folder ? (
+                                fileFilter.trim() || expanded.has(path) ? (
+                                  <ChevronDown size={12} />
+                                ) : (
+                                  <ChevronRight size={12} />
+                                )
+                              ) : null}
+                              {folder ? (
+                                <Folder size={15} className="folder-icon" />
+                              ) : (
+                                <FileCode2
+                                  size={15}
+                                  className={`file-icon ${language(path)}`}
+                                />
+                              )}
+                              <span>{path.split("/").at(-1)}</span>
+                              {changed.has(path) && (
+                                <span className="ai-dot" title="AI 변경" />
+                              )}
+                            </button>
+                            <button
+                              className="tree-menu"
+                              aria-label={`${path} 이름 변경`}
+                              title="이름 변경"
+                              onClick={() => showModal("rename", path)}
+                            >
+                              <Pencil size={12} />
+                            </button>
+                            <button
+                              className="tree-menu"
+                              aria-label={`${path} 삭제`}
+                              title="삭제"
+                              onClick={() => showModal("delete", path)}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="explorer-footer">
+                      <button
+                        disabled={!!uploadProgress || !!storageProgress}
+                        onClick={() => fileInput.current?.click()}
+                      >
+                        <Upload size={14} />
+                        {uploadProgress ||
+                          storageProgress ||
+                          "파일 또는 ZIP 가져오기"}
+                      </button>
+                      {(uploadProgress || storageProgress) && (
+                        <button
+                          onClick={() =>
+                            (fileImport.current ?? saveUpload.current)?.abort()
+                          }
+                        >
+                          업로드 취소
+                        </button>
+                      )}
+                      <div
+                        className={`capacity ${stats.total > LIMITS.total * 0.9 ? "warning" : ""}`}
+                      >
+                        <span>{stats.count}/500 파일</span>
+                        <span>
+                          {formatBytes(stats.total)} /{" "}
+                          {formatBytes(LIMITS.total)}
+                        </span>
+                      </div>
+                      <div className="capacity-track">
+                        <span
+                          style={{
+                            width: `${Math.min(100, (stats.total / LIMITS.total) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                      <a
+                        href="https://github.com/yudanah/letscoding_lounge/blob/main/docs/14-vercel-operations-and-student-framework-guide.md"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        라운지 파일 규칙
+                      </a>
+                    </div>
+                  </section>
+                </Panel>
+                <Separator
+                  className="resize-handle"
+                  aria-label="탐색기 폭 조절"
+                />
+              </>
+            )}
+            <Panel id="editor" defaultSize="55%" minSize="25%">
+              <main className="main-pane" id="workspace" tabIndex={-1}>
+                <div
+                  className="editor-tabs"
+                  role="tablist"
+                  aria-label="열린 파일"
+                >
+                  {tabs
+                    .filter((path) => project?.files[path])
+                    .map((path) => (
+                      <div
+                        key={path}
+                        role="presentation"
+                        className={`tab ${active === path && pane === "code" ? "active" : ""}`}
+                        draggable
+                        onDragStart={() => {
+                          tabDrag.current = path;
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setTabs((prev) => {
+                            const next = prev.filter(
+                              (p) => p !== tabDrag.current,
+                            );
+                            next.splice(next.indexOf(path), 0, tabDrag.current);
+                            return next;
+                          });
+                        }}
+                      >
+                        <button
+                          role="tab"
+                          aria-selected={active === path && pane === "code"}
+                          onKeyDown={(e) => {
+                            if (e.key === "Delete") {
+                              setTabs((prev) => prev.filter((p) => p !== path));
+                              if (active === path)
+                                setActive(tabs.find((p) => p !== path) ?? "");
+                            }
+                          }}
+                          onClick={() => openFile(path)}
+                        >
+                          <FileCode2 size={13} />
+                          {path.split("/").at(-1)}
+                          {unsaved.has(path) && <span className="dot" />}
+                        </button>
+                        <button
+                          aria-hidden="true"
+                          tabIndex={-1}
+                          title={`${path} 탭 닫기`}
+                          onClick={() => {
+                            setTabs((prev) => prev.filter((p) => p !== path));
+                            if (active === path)
+                              setActive(tabs.find((p) => p !== path) ?? "");
+                          }}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  <button
+                    role="tab"
+                    aria-selected={pane === "preview"}
+                    className={`preview-tab ${pane === "preview" ? "active" : ""}`}
+                    onClick={() => {
+                      setPane("preview");
+                      setDiff(null);
+                    }}
+                  >
+                    <Play size={13} /> 미리보기
+                  </button>
+                  <div className="grow" />
+                  <button
+                    className="icon-button"
+                    aria-hidden="true"
+                    tabIndex={-1}
+                    title="코드와 미리보기 나란히 보기"
+                    onClick={() => setSplit((v) => !v)}
+                  >
+                    <MoreHorizontal size={18} />
+                  </button>
+                </div>
+                <div className="breadcrumb">
+                  <span>{project?.title}</span>
+                  <ChevronRight size={12} />
+                  <span>
+                    {pane === "preview" ? "미리보기" : active || "파일 선택"}
+                  </span>
+                  <div className="grow" />
+                  {pane === "code" && activeFile?.kind === "text" && (
+                    <button onClick={() => void format()}>
+                      <Palette size={13} /> 코드 정리
+                    </button>
+                  )}
+                </div>
+                <div className={`editor-content ${split ? "split" : ""}`}>
+                  {(pane === "preview" || split) && project && (
+                    <Preview
+                      key={project.id}
+                      files={project.files}
+                      onConsole={setLogs}
+                      onNavigate={(path, line) => {
+                        openFile(path);
+                        setJump({ line });
+                      }}
+                    />
+                  )}
+                  {(pane === "code" || split) && (
+                    <div className="code-pane">
+                      {diff ? (
+                        <>
+                          <div className="diff-heading">
+                            {diff.path} 변경 비교
+                            <button
+                              onClick={() => setDiff(null)}
+                              aria-label="변경 비교 닫기"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                          <CodeDiff
+                            before={project?.files[diff.path]?.content ?? ""}
+                            after={diff.content ?? ""}
+                            theme={theme}
+                          />
+                          <div className="diff-actions">
+                            <button
+                              className="primary"
+                              onClick={() => void review(diff, true)}
+                            >
+                              {project.threads
+                                .flatMap((t) => t.messages)
+                                .find((m) =>
+                                  m.proposals.some((p) => p.id === diff.id),
+                                )
+                                ?.proposals.some((p) => p.requiresReview)
+                                ? "전체 작업 승인"
+                                : "변경 적용"}
+                            </button>
+                            <button onClick={() => void review(diff, false)}>
+                              무시
+                            </button>
+                          </div>
+                        </>
+                      ) : activeFile?.kind === "text" ? (
+                        <>
+                          {activeFile.size > LIMITS.text && (
+                            <div className="callout">
+                              256KB 초과 파일은 읽기 전용입니다.
+                            </div>
+                          )}
+                          <CodeEditor
+                            path={`${project?.id}/${active}`}
+                            content={activeFile.content}
+                            theme={theme}
+                            readOnly={activeFile.size > LIMITS.text}
+                            jump={jump}
+                            onChange={(value) => {
+                              if (
+                                value !==
+                                current.current?.files[active]?.content
+                              )
+                                mutateFiles({
+                                  ...current.current!.files,
+                                  [active]: textFile(value, activeFile.mime),
+                                });
+                            }}
+                            onSelection={setSelection}
+                            onCursor={(line, column) =>
+                              setCursor({ line, column })
+                            }
+                          />
+                          {active.endsWith(".svg") && (
+                            <div className="svg-preview">
+                              <img
+                                src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(activeFile.content)}`}
+                                alt={active}
+                                onLoad={(e) =>
+                                  setNotice(
+                                    `${e.currentTarget.naturalWidth} × ${e.currentTarget.naturalHeight} · ${(activeFile.size / 1024).toFixed(1)} KB`,
+                                  )
+                                }
+                              />
+                            </div>
+                          )}
+                          {isMarkdown && (
+                            <Markdown content={activeFile.content} />
+                          )}
+                        </>
+                      ) : activeFile?.kind === "binary" ? (
+                        <div className="image-viewer">
+                          <img
+                            src={activeFile.content}
+                            alt={active}
+                            onLoad={(e) =>
+                              setNotice(
+                                `${e.currentTarget.naturalWidth} × ${e.currentTarget.naturalHeight} · ${(activeFile.size / 1024).toFixed(1)} KB`,
+                              )
+                            }
+                          />
+                          <p>
+                            {active} · {(activeFile.size / 1024).toFixed(1)} KB
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              </main>
+            </Panel>
+            {chatVisible && (
+              <>
+                <Separator
+                  className="resize-handle"
+                  aria-label="AI 채팅 폭 조절"
+                />
+                <Panel
+                  id="chat"
+                  defaultSize="27%"
+                  minSize="260px"
+                  maxSize="55%"
+                >
+                  <section className="chat-pane" aria-label="AI 채팅">
+                    <div className="pane-heading">
+                      <span>
+                        <Sparkles size={15} /> LECO (레코)
+                      </span>
+                      <div>
+                        <button
+                          className="ai-remaining"
+                          aria-label="이번 달 남은 AI 사용량"
+                          title="월간 한도에서 사용·예약 금액을 뺀 비율 · 한국 시간 매월 1일 초기화"
+                          onClick={() => {
+                            showModal("usage");
+                            void refreshUsage();
+                          }}
+                        >
+                          {config.demo
+                            ? "데모"
+                            : !config.ai
+                              ? "AI 비활성"
+                              : usageStatus === "error"
+                                ? "조회 실패"
+                                : usageStatus === "loading"
+                                  ? "확인 중"
+                                  : monthlyUsageLabel(usage, usageClock)}
+                        </button>
+                        <button
+                          aria-label="새 대화"
+                          title="새 대화 시작하기"
+                          onClick={() => void newThread()}
+                          disabled={busy}
+                        >
+                          <Plus size={16} />
+                        </button>
+                        <button
+                          aria-label="AI 패널 접기"
+                          title="대화창 숨기기"
+                          onClick={() => setChatVisible(false)}
+                        >
+                          <PanelRightClose size={15} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="thread-bar">
+                      <div className="thread-selection">
+                        <select
+                          aria-label="대화 선택"
+                          value={thread?.id ?? ""}
+                          disabled={busy}
+                          onChange={(e) => setThreadId(e.target.value)}
+                        >
+                          {project?.threads.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        className="thread-delete"
+                        aria-label="대화 삭제"
+                        disabled={busy || !thread}
+                        onClick={() => {
+                          setTarget(thread!.id);
+                          setFormError("");
+                          setModal("delete-thread");
+                        }}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                    <div className="chat-messages" aria-live="polite">
+                      {!thread?.messages.length && !pendingMessage && (
+                        <div className="chat-welcome">
+                          <div className="assistant-symbol">
+                            <Sparkles size={24} />
+                          </div>
+                          <h1>무엇을 만들까요?</h1>
+                          <p>원하는 내용을 말하면 미리보기에 반영해요.</p>
+                          <button
+                            className="suggestion"
+                            onClick={() =>
+                              void send(undefined, "버튼 색을 파랗게 바꿔줘")
+                            }
+                          >
+                            <span>버튼 색을 파랗게 바꿔줘</span>
+                            <ArrowUp size={14} />
+                          </button>
+                        </div>
+                      )}
+                      {[
+                        ...(thread?.messages ?? []),
+                        ...(pendingMessage ? [pendingMessage] : []),
+                      ].map((message) => (
+                        <article
+                          key={message.id}
+                          className={`message ${message.role}`}
+                        >
+                          <div className="message-heading">
+                            {message.role === "assistant" ? (
+                              <>
+                                <Bot size={15} /> LECO (레코)
+                              </>
+                            ) : (
+                              <>
+                                나{" "}
+                                <span>
+                                  {message.selection ? "선택 코드 첨부" : ""}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                          <Markdown
+                            content={
+                              message.role === "assistant"
+                                ? message.text
+                                    .replace(/```[\s\S]*?(?:```|$)/g, "")
+                                    .trim() ||
+                                  (message.status === "error"
+                                    ? "응답을 완성하지 못했습니다. 변경 내용은 반영되지 않았습니다. 다시 시도해주세요."
+                                    : message.proposals.length
+                                      ? "파일 변경 내용을 확인해주세요."
+                                      : "응답을 완성하지 못했습니다. 변경된 파일이 없습니다. 다시 시도해주세요.")
+                                : message.text
+                            }
+                            chat
+                          />
+                          {message.status === "error" && (
+                            <small>응답 생성 실패</small>
+                          )}
+                          {message.status === "interrupted" && (
+                            <small>중단된 응답</small>
+                          )}
+                          {message.selection && (
+                            <details>
+                              <summary>첨부한 선택 코드</summary>
+                              <pre>{message.selection}</pre>
+                            </details>
+                          )}
+                          {message.proposals.map((proposal) => (
+                            <div className="proposal" key={proposal.id}>
+                              <div>
+                                <FileCode2 size={14} />
+                                <strong>{proposal.path}</strong>
+                                <span>
+                                  {
+                                    {
+                                      write: "수정",
+                                      create: "추가",
+                                      rename: "이름 변경",
+                                      delete: "삭제",
+                                    }[proposal.operation]
+                                  }
+                                  {proposal.status === "applied" && "됨"}
+                                </span>
+                              </div>
+                              {proposal.target && <p>→ {proposal.target}</p>}
+                              {proposal.status === "pending" && busy ? (
+                                <p>파일 변경을 처리하는 중...</p>
+                              ) : proposal.status === "pending" ? (
+                                <>
+                                  <p>승인하기 전에는 파일이 바뀌지 않습니다.</p>
+                                  <div className="proposal-actions">
+                                    {["create", "write"].includes(
+                                      proposal.operation,
+                                    ) &&
+                                      !proposal.file && (
+                                        <button
+                                          onClick={() => {
+                                            setDiff(proposal);
+                                            setPane("code");
+                                          }}
+                                        >
+                                          비교
+                                        </button>
+                                      )}
+                                    <button
+                                      className="primary"
+                                      onClick={() =>
+                                        void review(proposal, true)
+                                      }
+                                    >
+                                      {message.proposals.some(
+                                        (p) => p.requiresReview,
+                                      )
+                                        ? "전체 작업 승인"
+                                        : "적용"}
+                                    </button>
+                                    <button
+                                      onClick={() =>
+                                        void review(proposal, false)
+                                      }
+                                    >
+                                      {message.proposals.some(
+                                        (p) => p.requiresReview,
+                                      )
+                                        ? "전체 작업 무시"
+                                        : "무시"}
+                                    </button>
+                                  </div>
+                                </>
+                              ) : proposal.status === "rejected" ? (
+                                <p className="proposal-status">
+                                  <Check size={12} />
+                                  무시됨
+                                </p>
+                              ) : null}
+                            </div>
+                          ))}
+                        </article>
+                      ))}
+                      {busy && (
+                        <article className="message assistant">
+                          <div className="message-heading">
+                            <LoaderCircle size={14} className="spin" /> 응답 중…
+                          </div>
+                          <p role="status">
+                            코드를 작성하는 중...
+                            <small className="code-progress">
+                              (약 {codeCharacters.toLocaleString("ko-KR")}자)
+                            </small>
+                          </p>
+                        </article>
+                      )}
+                      <div ref={chatBottom} />
+                    </div>
+                    <form className="chat-composer" onSubmit={send}>
+                      {attachments.length > 0 && (
+                        <div className="attachments">
+                          {attachments.map((src, i) => (
+                            <div key={i}>
+                              <img src={src} alt={`첨부 이미지 ${i + 1}`} />
+                              <button
+                                aria-label={`첨부 이미지 ${i + 1} 제거`}
+                                type="button"
+                                onClick={() =>
+                                  setAttachments((a) =>
+                                    a.filter((_, n) => n !== i),
+                                  )
+                                }
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {attachSelection && (
+                        <div className="selection-chip">
+                          선택 코드 첨부됨
+                          <button
+                            type="button"
+                            onClick={() => setAttachSelection(false)}
+                            aria-label="선택 코드 제거"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      )}
+                      <label className="sr-only" htmlFor="chat-input">
+                        AI에게 보낼 메시지
+                      </label>
+                      <textarea
+                        id="chat-input"
+                        placeholder="여기에 프롬프트를 작성하세요."
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        rows={3}
+                        disabled={busy}
+                        onKeyDown={(e) => {
+                          if (
+                            e.key === "Enter" &&
+                            !e.shiftKey &&
+                            !e.nativeEvent.isComposing
+                          ) {
+                            e.preventDefault();
+                            void send();
+                          }
+                        }}
+                      />
+                      <div className="composer-toolbar">
+                        <button
+                          type="button"
+                          aria-label="이미지 첨부"
+                          onClick={() => imageInput.current?.click()}
+                          disabled={busy}
+                        >
+                          <Paperclip size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="선택 코드 첨부"
+                          onClick={() => setAttachSelection(true)}
+                          disabled={!selection || busy}
+                        >
+                          <Code2 size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="이미지 생성"
+                          onClick={() => void generateImage()}
+                          disabled={busy}
+                        >
+                          <ImagePlus size={16} />
+                        </button>
+                        <div className="grow" />
+                        {busy ? (
+                          <button
+                            type="button"
+                            aria-label="AI 응답 중단"
+                            className="send-button"
+                            onClick={() => abort.current?.abort()}
+                          >
+                            <Square size={13} />
+                          </button>
+                        ) : (
+                          <button
+                            type="submit"
+                            aria-label="메시지 보내기"
+                            className="send-button"
+                            disabled={!prompt.trim() || !project}
+                          >
+                            <ArrowUp size={17} />
+                          </button>
+                        )}
+                      </div>
+                    </form>
+                  </section>
+                </Panel>
+              </>
+            )}
+          </Group>
+        </div>
+      )}
+      {project && (
+        <footer className="statusbar">
+          <span>
+            <span className="dot" />{" "}
+            {config.demo ? "로컬 작업 공간" : "서버 연결"}
+          </span>
+          <button onClick={() => void flush().catch(() => {})}>
+            {status === "error" ? "저장 다시 시도" : "모든 변경 저장"}
           </button>
           <div className="grow" />
           <button
-            aria-label="사용량 보기"
+            className={
+              usage &&
+              usage.dailyLimitUsd &&
+              usage.costUsd / usage.dailyLimitUsd >= 0.8
+                ? "usage-warning"
+                : ""
+            }
             onClick={() => {
               void refreshUsage();
               setModal("usage");
             }}
           >
-            <Settings2 size={21} />
+            {config.demo
+              ? "AI 데모"
+              : !config.ai
+                ? "AI 비활성"
+                : usageStatus === "error"
+                  ? "AI 사용량 확인 실패"
+                  : usage
+                    ? `AI $${usage.costUsd.toFixed(3)} / $${usage.dailyLimitUsd.toFixed(2)}`
+                    : "AI 사용량 확인 중…"}
           </button>
-        </aside>
-        <Group orientation="horizontal" className="panels" id="workbench">
-          {explorer && (
-            <>
-              <Panel
-                id="explorer"
-                defaultSize="18%"
-                minSize="160px"
-                maxSize="40%"
-              >
-                <section className="explorer-pane" aria-label="파일 탐색기">
-                  <div className="pane-heading">
-                    <span>탐색기</span>
-                    <button
-                      aria-label="탐색기 접기"
-                      onClick={() => setExplorer(false)}
-                    >
-                      <PanelLeftClose size={15} />
-                    </button>
-                  </div>
-                  <div className="tree-heading">
-                    <button
-                      className="tree-root"
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        move(dragPath.current, "");
-                      }}
-                    >
-                      <ChevronDown size={14} />
-                      <span>{project?.title ?? "프로젝트"}</span>
-                    </button>
-                    <div className="tree-actions">
-                      <button
-                        aria-label="새 파일"
-                        onClick={() => showModal("new-file")}
-                      >
-                        <FilePlus2 size={15} />
-                      </button>
-                      <button
-                        aria-label="새 폴더"
-                        onClick={() => showModal("new-folder")}
-                      >
-                        <FolderPlus size={15} />
-                      </button>
-                      <button
-                        aria-label="파일 업로드"
-                        onClick={() => fileInput.current?.click()}
-                      >
-                        <Upload size={15} />
-                      </button>
-                    </div>
-                  </div>
-                  <div
-                    className="file-tree"
-                    role="tree"
-                    aria-label="프로젝트 파일"
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      if (e.dataTransfer.files.length) {
-                        e.preventDefault();
-                        void upload(e.dataTransfer.files);
-                      }
-                    }}
-                  >
-                    {rows.map((path) => {
-                      const folder =
-                        project?.files[path]?.kind === "directory" ||
-                        !project?.files[path];
-                      return (
-                        <div
-                          className="tree-entry"
-                          role="treeitem"
-                          aria-label={path}
-                          aria-level={path.split("/").length}
-                          aria-selected={selected === path}
-                          aria-expanded={
-                            folder ? expanded.has(path) : undefined
-                          }
-                          key={path}
-                          style={{
-                            paddingLeft: 8 + (path.split("/").length - 1) * 16,
-                          }}
-                        >
-                          <button
-                            className={`tree-file ${active === path ? "selected" : ""}`}
-                            onClick={() => {
-                              setSelected(path);
-                              if (folder)
-                                setExpanded((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(path)) next.delete(path);
-                                  else next.add(path);
-                                  return next;
-                                });
-                              else openFile(path);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "F2") {
-                                e.preventDefault();
-                                showModal("rename", path);
-                              }
-                              if (e.key === "Delete") {
-                                e.preventDefault();
-                                showModal("delete", path);
-                              }
-                            }}
-                            draggable
-                            onDragStart={() => {
-                              dragPath.current = path;
-                            }}
-                            onDragOver={(e) => {
-                              if (folder) e.preventDefault();
-                            }}
-                            onDrop={(e) => {
-                              if (folder && !e.dataTransfer.files.length) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                move(dragPath.current, path);
-                              }
-                            }}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              setSelected(path);
-                              setTarget(path);
-                              setName(path);
-                              setModal("rename");
-                            }}
-                          >
-                            {folder ? (
-                              expanded.has(path) ? (
-                                <ChevronDown size={12} />
-                              ) : (
-                                <ChevronRight size={12} />
-                              )
-                            ) : (
-                              <span className="tree-indent" />
-                            )}
-                            {folder ? (
-                              <Folder size={15} className="folder-icon" />
-                            ) : (
-                              <FileCode2
-                                size={15}
-                                className={`file-icon ${language(path)}`}
-                              />
-                            )}
-                            <span>{path.split("/").at(-1)}</span>
-                            {changed.has(path) && (
-                              <span className="ai-dot" title="AI 변경" />
-                            )}
-                          </button>
-                          <button
-                            className="tree-menu"
-                            aria-label={`${path} 삭제`}
-                            onClick={() => showModal("delete", path)}
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="explorer-footer">
-                    <button onClick={() => fileInput.current?.click()}>
-                      <Upload size={14} />
-                      {uploadProgress || "파일 또는 ZIP 가져오기"}
-                    </button>
-                    <div
-                      className={`capacity ${stats.total > LIMITS.total * 0.9 ? "warning" : ""}`}
-                    >
-                      <span>{stats.count}/500 파일</span>
-                      <span>{(stats.total / 1024).toFixed(1)} KB / 100 MB</span>
-                    </div>
-                    <div className="capacity-track">
-                      <span
-                        style={{
-                          width: `${Math.min(100, (stats.total / LIMITS.total) * 100)}%`,
-                        }}
-                      />
-                    </div>
-                    <a
-                      href="https://github.com/yudanah/letscoding_lounge/blob/main/docs/14-vercel-operations-and-student-framework-guide.md"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      라운지 파일 규칙
-                    </a>
-                  </div>
-                </section>
-              </Panel>
-              <Separator
-                className="resize-handle"
-                aria-label="탐색기 폭 조절"
-              />
-            </>
-          )}
-          <Panel id="editor" defaultSize="55%" minSize="25%">
-            <main className="main-pane" id="workspace" tabIndex={-1}>
-              <div
-                className="editor-tabs"
-                role="tablist"
-                aria-label="열린 파일"
-              >
-                {tabs
-                  .filter((path) => project?.files[path])
-                  .map((path) => (
-                    <div
-                      key={path}
-                      role="presentation"
-                      className={`tab ${active === path && pane === "code" ? "active" : ""}`}
-                      draggable
-                      onDragStart={() => {
-                        tabDrag.current = path;
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        setTabs((prev) => {
-                          const next = prev.filter(
-                            (p) => p !== tabDrag.current,
-                          );
-                          next.splice(next.indexOf(path), 0, tabDrag.current);
-                          return next;
-                        });
-                      }}
-                    >
-                      <button
-                        role="tab"
-                        aria-selected={active === path && pane === "code"}
-                        onKeyDown={(e) => {
-                          if (e.key === "Delete") {
-                            setTabs((prev) => prev.filter((p) => p !== path));
-                            if (active === path)
-                              setActive(tabs.find((p) => p !== path) ?? "");
-                          }
-                        }}
-                        onClick={() => openFile(path)}
-                      >
-                        <FileCode2 size={13} />
-                        {path.split("/").at(-1)}
-                        {unsaved.has(path) && <span className="dot" />}
-                      </button>
-                      <button
-                        aria-hidden="true"
-                        tabIndex={-1}
-                        title={`${path} 탭 닫기`}
-                        onClick={() => {
-                          setTabs((prev) => prev.filter((p) => p !== path));
-                          if (active === path)
-                            setActive(tabs.find((p) => p !== path) ?? "");
-                        }}
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                  ))}
-                <button
-                  role="tab"
-                  aria-selected={pane === "preview"}
-                  className={`preview-tab ${pane === "preview" ? "active" : ""}`}
-                  onClick={() => {
-                    setPane("preview");
-                    setDiff(null);
-                  }}
-                >
-                  <Play size={13} /> 미리보기
-                </button>
-                <div className="grow" />
-                <button
-                  className="icon-button"
-                  aria-hidden="true"
-                  tabIndex={-1}
-                  title="코드와 미리보기 분할"
-                  onClick={() => setSplit((v) => !v)}
-                >
-                  <MoreHorizontal size={18} />
-                </button>
-              </div>
-              <div className="breadcrumb">
-                <span>{project?.title}</span>
-                <ChevronRight size={12} />
-                <span>
-                  {pane === "preview" ? "미리보기" : active || "파일 선택"}
-                </span>
-                <div className="grow" />
-                {pane === "code" && activeFile?.kind === "text" && (
-                  <button onClick={() => void format()}>
-                    <Palette size={13} /> 코드 정리
-                  </button>
-                )}
-              </div>
-              <div className={`editor-content ${split ? "split" : ""}`}>
-                {(pane === "preview" || split) && project && (
-                  <Preview
-                    files={project.files}
-                    onConsole={setLogs}
-                    onNavigate={(path, line) => {
-                      openFile(path);
-                      setJump(line);
-                    }}
-                  />
-                )}
-                {(pane === "code" || split) && (
-                  <div className="code-pane">
-                    {diff ? (
-                      <>
-                        <div className="diff-heading">
-                          {diff.path} 변경 비교
-                          <button
-                            onClick={() => setDiff(null)}
-                            aria-label="변경 비교 닫기"
-                          >
-                            <X size={16} />
-                          </button>
-                        </div>
-                        <CodeDiff
-                          before={project?.files[diff.path]?.content ?? ""}
-                          after={diff.content ?? ""}
-                          theme={theme}
-                        />
-                        <div className="diff-actions">
-                          <button
-                            className="primary"
-                            onClick={() => void review(diff, true)}
-                          >
-                            변경 적용
-                          </button>
-                          <button onClick={() => void review(diff, false)}>
-                            무시
-                          </button>
-                        </div>
-                      </>
-                    ) : activeFile?.kind === "text" ? (
-                      <>
-                        {activeFile.size > LIMITS.text && (
-                          <div className="callout">
-                            256KB 초과 파일은 읽기 전용입니다.
-                          </div>
-                        )}
-                        <CodeEditor
-                          path={`${project?.id}/${active}`}
-                          content={activeFile.content}
-                          theme={theme}
-                          readOnly={activeFile.size > LIMITS.text}
-                          line={jump}
-                          onChange={(value) => {
-                            if (
-                              value !== current.current?.files[active]?.content
-                            )
-                              mutateFiles({
-                                ...current.current!.files,
-                                [active]: textFile(value, activeFile.mime),
-                              });
-                          }}
-                          onSelection={setSelection}
-                          onCursor={(line, column) =>
-                            setCursor({ line, column })
-                          }
-                        />
-                        {active.endsWith(".svg") && (
-                          <div className="svg-preview">
-                            <img
-                              src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(activeFile.content)}`}
-                              alt={active}
-                              onLoad={(e) =>
-                                setNotice(
-                                  `${e.currentTarget.naturalWidth} × ${e.currentTarget.naturalHeight} · ${(activeFile.size / 1024).toFixed(1)} KB`,
-                                )
-                              }
-                            />
-                          </div>
-                        )}
-                        {isMarkdown && (
-                          <Markdown content={activeFile.content} />
-                        )}
-                      </>
-                    ) : activeFile?.kind === "binary" ? (
-                      <div className="image-viewer">
-                        <img
-                          src={activeFile.content}
-                          alt={active}
-                          onLoad={(e) =>
-                            setNotice(
-                              `${e.currentTarget.naturalWidth} × ${e.currentTarget.naturalHeight} · ${(activeFile.size / 1024).toFixed(1)} KB`,
-                            )
-                          }
-                        />
-                        <p>
-                          {active} · {(activeFile.size / 1024).toFixed(1)} KB
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="empty-state">
-                        <Code2 size={38} />
-                        <h2>무엇을 만들어볼까요?</h2>
-                        <p>파일을 열거나 새 프로젝트를 시작하세요.</p>
-                        <button
-                          className="primary"
-                          onClick={() => showModal("new-file")}
-                        >
-                          새 파일 만들기
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </main>
-          </Panel>
-          {chatVisible && (
-            <>
-              <Separator
-                className="resize-handle"
-                aria-label="AI 채팅 폭 조절"
-              />
-              <Panel id="chat" defaultSize="27%" minSize="260px" maxSize="55%">
-                <section className="chat-pane" aria-label="AI 채팅">
-                  <div className="pane-heading">
-                    <span>
-                      <Sparkles size={15} /> 코딩 도우미
-                    </span>
-                    <div>
-                      <button
-                        aria-label="새 대화"
-                        onClick={() => void newThread()}
-                        disabled={busy}
-                      >
-                        <Plus size={16} />
-                      </button>
-                      <button
-                        aria-label="AI 패널 접기"
-                        onClick={() => setChatVisible(false)}
-                      >
-                        <PanelRightClose size={15} />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="thread-bar">
-                    <select
-                      aria-label="대화 선택"
-                      value={thread?.id ?? ""}
-                      disabled={busy}
-                      onChange={(e) => setThreadId(e.target.value)}
-                    >
-                      {project?.threads.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.title}
-                        </option>
-                      ))}
-                    </select>
-                    <label className="auto-apply">
-                      <input
-                        type="checkbox"
-                        checked={thread?.autoApply ?? false}
-                        disabled={busy}
-                        onChange={() => void toggleAuto()}
-                      />
-                      자동 적용
-                    </label>
-                  </div>
-                  <div className="chat-messages" aria-live="polite">
-                    {!thread?.messages.length && (
-                      <div className="chat-welcome">
-                        <div className="assistant-symbol">
-                          <Sparkles size={24} />
-                        </div>
-                        <p className="eyebrow">YOUR CODING COMPANION</p>
-                        <h1>함께 만들어볼까요?</h1>
-                        <p>
-                          아이디어를 이야기해주세요.
-                          <br />
-                          코드를 읽고, 만들고, 고치는 걸 도와드려요.
-                        </p>
-                        <button
-                          className="suggestion"
-                          onClick={() =>
-                            void send(undefined, "버튼 색을 파랗게 바꿔줘")
-                          }
-                        >
-                          <span>버튼 색을 파랗게 바꿔줘</span>
-                          <ArrowUp size={14} />
-                        </button>
-                        <div className="chat-tip">
-                          <Check size={13} /> 변경은 확인하고 적용할 수 있어요.
-                        </div>
-                      </div>
-                    )}
-                    {thread?.messages.map((message) => (
-                      <article
-                        key={message.id}
-                        className={`message ${message.role}`}
-                      >
-                        <div className="message-heading">
-                          {message.role === "assistant" ? (
-                            <>
-                              <Bot size={15} /> 코딩 도우미
-                            </>
-                          ) : (
-                            <>
-                              나{" "}
-                              <span>
-                                {message.selection ? "선택 코드 첨부" : ""}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                        <MessageBody
-                          text={message.text}
-                          onSave={(code) => {
-                            setName("");
-                            setModal("new-file");
-                            pendingCode.current = code;
-                            setNotice(
-                              "파일 경로를 입력하면 코드가 저장됩니다.",
-                            );
-                            navigator.clipboard
-                              ?.writeText(code)
-                              .catch(() => {});
-                          }}
-                        />
-                        {message.status === "interrupted" && (
-                          <small>중단된 응답</small>
-                        )}
-                        {message.selection && (
-                          <details>
-                            <summary>첨부한 선택 코드</summary>
-                            <pre>{message.selection}</pre>
-                          </details>
-                        )}
-                        {message.tools?.map((tool, i) => (
-                          <details className="tool-call" key={i}>
-                            <summary>
-                              <Code2 size={12} />
-                              {tool.name}
-                            </summary>
-                            <pre>
-                              {JSON.stringify(
-                                { input: tool.input, output: tool.output },
-                                null,
-                                2,
-                              )}
-                            </pre>
-                          </details>
-                        ))}
-                        {message.proposals.map((proposal) => (
-                          <div className="proposal" key={proposal.id}>
-                            <div>
-                              <FileCode2 size={14} />
-                              <strong>{proposal.path}</strong>
-                              <span>
-                                {
-                                  {
-                                    write: "수정",
-                                    create: "생성",
-                                    rename: "이름 변경",
-                                    delete: "삭제",
-                                  }[proposal.operation]
-                                }
-                              </span>
-                            </div>
-                            {proposal.target && <p>→ {proposal.target}</p>}
-                            {proposal.status === "pending" ? (
-                              <>
-                                <p>승인하기 전에는 파일이 바뀌지 않습니다.</p>
-                                <div className="proposal-actions">
-                                  {["create", "write"].includes(
-                                    proposal.operation,
-                                  ) &&
-                                    !proposal.file && (
-                                      <button
-                                        onClick={() => {
-                                          setDiff(proposal);
-                                          setPane("code");
-                                        }}
-                                      >
-                                        비교
-                                      </button>
-                                    )}
-                                  <button
-                                    className="primary"
-                                    onClick={() => void review(proposal, true)}
-                                  >
-                                    적용
-                                  </button>
-                                  <button
-                                    onClick={() => void review(proposal, false)}
-                                  >
-                                    무시
-                                  </button>
-                                </div>
-                              </>
-                            ) : (
-                              <p className="proposal-status">
-                                <Check size={12} />
-                                {proposal.status === "applied"
-                                  ? "적용됨"
-                                  : "무시됨"}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </article>
-                    ))}
-                    {busy && (
-                      <article className="message assistant">
-                        <div className="message-heading">
-                          <LoaderCircle size={14} className="spin" /> 응답 중…
-                        </div>
-                        <p className="message-text">
-                          {streamText || "파일과 요청을 확인하고 있어요."}
-                        </p>
-                      </article>
-                    )}
-                    <div ref={chatBottom} />
-                  </div>
-                  <form className="chat-composer" onSubmit={send}>
-                    {attachments.length > 0 && (
-                      <div className="attachments">
-                        {attachments.map((src, i) => (
-                          <div key={i}>
-                            <img src={src} alt={`첨부 이미지 ${i + 1}`} />
-                            <button
-                              aria-label={`첨부 이미지 ${i + 1} 제거`}
-                              type="button"
-                              onClick={() =>
-                                setAttachments((a) =>
-                                  a.filter((_, n) => n !== i),
-                                )
-                              }
-                            >
-                              <X size={12} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {attachSelection && (
-                      <div className="selection-chip">
-                        선택 코드 첨부됨
-                        <button
-                          type="button"
-                          onClick={() => setAttachSelection(false)}
-                          aria-label="선택 코드 제거"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    )}
-                    <label className="sr-only" htmlFor="chat-input">
-                      AI에게 보낼 메시지
-                    </label>
-                    <textarea
-                      id="chat-input"
-                      placeholder="무엇을 만들고 싶나요?"
-                      value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
-                      rows={3}
-                      disabled={busy}
-                      onKeyDown={(e) => {
-                        if (
-                          e.key === "Enter" &&
-                          !e.shiftKey &&
-                          !e.nativeEvent.isComposing
-                        ) {
-                          e.preventDefault();
-                          void send();
-                        }
-                      }}
-                    />
-                    <div className="composer-toolbar">
-                      <button
-                        type="button"
-                        aria-label="이미지 첨부"
-                        onClick={() => imageInput.current?.click()}
-                        disabled={busy}
-                      >
-                        <Paperclip size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="선택 코드 첨부"
-                        onClick={() => setAttachSelection(true)}
-                        disabled={!selection || busy}
-                      >
-                        <Code2 size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="이미지 생성"
-                        onClick={() => void generateImage()}
-                        disabled={busy}
-                      >
-                        <ImagePlus size={16} />
-                      </button>
-                      <div className="grow" />
-                      <select
-                        aria-label="AI 모델 선택"
-                        value={model}
-                        onChange={(e) => setModel(e.target.value)}
-                        disabled={config.demo || busy}
-                      >
-                        {config.demo ? (
-                          <option value="">데모 AI</option>
-                        ) : (
-                          config.models
-                            .filter((m) => !m.image)
-                            .map((m) => (
-                              <option value={m.id} key={m.label}>
-                                {m.label}{" "}
-                                {prices.find((p) => p.id === m.id)
-                                  ?.inputPrice != null
-                                  ? `· 입력 $${prices.find((p) => p.id === m.id)!.inputPrice}/M`
-                                  : ""}
-                              </option>
-                            ))
-                        )}
-                      </select>
-                      {busy ? (
-                        <button
-                          type="button"
-                          aria-label="AI 응답 중단"
-                          className="send-button"
-                          onClick={() => abort.current?.abort()}
-                        >
-                          <Square size={13} />
-                        </button>
-                      ) : (
-                        <button
-                          type="submit"
-                          aria-label="메시지 보내기"
-                          className="send-button"
-                          disabled={!prompt.trim() || !project}
-                        >
-                          <ArrowUp size={17} />
-                        </button>
-                      )}
-                    </div>
-                    <p className="composer-note">
-                      {config.demo
-                        ? "예시 응답 · 외부 API 호출 없음"
-                        : "AI 변경안을 적용하기 전에 확인하세요."}
-                    </p>
-                  </form>
-                </section>
-              </Panel>
-            </>
-          )}
-        </Group>
-      </div>
-      <footer className="statusbar">
-        <span>
-          <span className="dot" />{" "}
-          {config.demo ? "로컬 작업 공간" : "서버 연결"}
-        </span>
-        <button onClick={() => void flush().catch(() => {})}>
-          {status === "error" ? "저장 다시 시도" : "모든 변경 저장"}
-        </button>
-        <div className="grow" />
-        <button
-          className={
-            usage &&
-            usage.dailyLimitUsd &&
-            usage.costUsd / usage.dailyLimitUsd >= 0.8
-              ? "usage-warning"
-              : ""
-          }
-          onClick={() => {
-            void refreshUsage();
-            setModal("usage");
-          }}
-        >
-          {config.demo
-            ? "AI 데모"
-            : usage
-              ? `AI $${usage.costUsd.toFixed(3)} / $${usage.dailyLimitUsd.toFixed(2)}`
-              : "AI 예산 미설정"}
-        </button>
-        <span>
-          줄 {cursor.line}, 열 {cursor.column}
-        </span>
-        <span>UTF-8</span>
-        <span>{language(active)}</span>
-      </footer>
+          <span>
+            줄 {cursor.line}, 열 {cursor.column}
+          </span>
+          <span>UTF-8</span>
+          <span>{language(active)}</span>
+        </footer>
+      )}
       {notice && (
         <div className="toast" role="status">
           <Check size={16} />
@@ -2242,7 +2721,11 @@ export function EditorApp({ config }: { config: AppConfig }) {
         <Dialog
           title={
             {
-              projects: "나의 프로젝트",
+              projects: "새 프로젝트",
+              "rename-project": "프로젝트 이름 바꾸기",
+              "delete-project": "프로젝트 삭제",
+              "duplicate-project": "프로젝트 복제",
+              "delete-thread": "대화 삭제",
               "new-file": "새 파일",
               "new-folder": "새 폴더",
               rename: "이름 변경",
@@ -2254,8 +2737,114 @@ export function EditorApp({ config }: { config: AppConfig }) {
               usage: "AI 사용량",
             }[modal]
           }
-          onClose={() => setModal(null)}
+          onClose={() => {
+            if (!projectDeletePending && !projectDuplicatePending)
+              setModal(null);
+          }}
         >
+          {modal === "duplicate-project" && deletingProject && (
+            <>
+              <p>
+                <strong>&quot;{deletingProject.title}&quot;</strong> 프로젝트를
+                복제하시겠습니까?
+              </p>
+              {formError && (
+                <p role="alert" className="error-text">
+                  {formError}
+                </p>
+              )}
+              <div className="dialog-actions">
+                <button
+                  disabled={projectDuplicatePending}
+                  onClick={() => setModal(null)}
+                >
+                  취소
+                </button>
+                <button
+                  className="primary"
+                  disabled={projectDuplicatePending}
+                  onClick={() =>
+                    void projectAction("duplicate", deletingProject, true)
+                  }
+                >
+                  {projectDuplicatePending ? "복제 중..." : "복제"}
+                </button>
+              </div>
+            </>
+          )}
+          {modal === "delete-project" && deletingProject && (
+            <form onSubmit={deleteProject}>
+              <p>
+                <strong>&quot;{deletingProject.title}&quot;</strong> 프로젝트를
+                삭제할까요?
+              </p>
+              <p>
+                삭제를 원하시면 프로젝트 이름을 정확하게 입력하고 삭제 버튼을
+                눌러주세요.
+              </p>
+              <label className="sr-only" htmlFor="project-delete-name">
+                삭제할 프로젝트 이름
+              </label>
+              <input
+                id="project-delete-name"
+                autoFocus
+                placeholder="프로젝트 이름을 입력하세요."
+                value={name}
+                disabled={projectDeletePending}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setFormError("");
+                }}
+              />
+              <p className="error-text">
+                삭제한 프로젝트는 복원할 수 없습니다.
+              </p>
+              {formError && (
+                <p role="alert" className="error-text">
+                  {formError}
+                </p>
+              )}
+              <div className="dialog-actions">
+                <button
+                  type="button"
+                  disabled={projectDeletePending}
+                  onClick={() => setModal(null)}
+                >
+                  취소
+                </button>
+                <button
+                  className="danger"
+                  type="submit"
+                  disabled={
+                    projectDeletePending || name !== deletingProject.title
+                  }
+                >
+                  {projectDeletePending ? "삭제 중..." : "삭제"}
+                </button>
+              </div>
+            </form>
+          )}
+          {modal === "delete-thread" && (
+            <form onSubmit={deleteThread}>
+              <p>
+                선택한 대화와 메시지를 삭제할까요? 삭제한 대화는 되돌릴 수
+                없습니다. 프로젝트 파일은 그대로 유지됩니다.
+              </p>
+              {formError && (
+                <p role="alert" className="error-text">
+                  {formError}
+                </p>
+              )}
+              <div className="dialog-actions">
+                <button type="button" onClick={() => setModal(null)}>
+                  취소
+                </button>
+                <button className="danger" type="submit">
+                  대화 삭제
+                </button>
+              </div>
+            </form>
+          )}
           {["new-file", "new-folder", "rename", "delete"].includes(modal) && (
             <form onSubmit={fileAction}>
               {modal === "delete" ? (
@@ -2323,71 +2912,33 @@ export function EditorApp({ config }: { config: AppConfig }) {
               </div>
             </form>
           )}
-          {modal === "projects" && (
+          {(modal === "projects" || modal === "rename-project") && (
             <>
-              <div className="project-list">
-                {projects.map((item) => (
-                  <div key={item.id}>
-                    <button onClick={() => void openProject(item).catch(fail)}>
-                      <FolderOpen size={19} />
-                      <span>
-                        <strong>{item.title}</strong>
-                        <small>
-                          {new Date(item.updatedAt).toLocaleString("ko-KR")}
-                        </small>
-                      </span>
-                    </button>
-                    <button
-                      aria-label={`${item.title} 이름 변경`}
-                      onClick={() => void projectAction("rename", item)}
-                    >
-                      <Menu size={15} />
-                    </button>
-                    <button
-                      aria-label={`${item.title} 복제`}
-                      onClick={() => void projectAction("duplicate", item)}
-                    >
-                      <Copy size={15} />
-                    </button>
-                    <button
-                      aria-label={`${item.title} 프로젝트 삭제`}
-                      onClick={() => void projectAction("delete", item)}
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                ))}
-              </div>
               <form onSubmit={create}>
-                <h3>새 프로젝트</h3>
-                <label htmlFor="project-title">프로젝트 이름</label>
+                <label className="sr-only" htmlFor="project-title">
+                  프로젝트 이름
+                </label>
                 <input
                   id="project-title"
-                  placeholder="나의 새로운 아이디어"
+                  placeholder={
+                    modal === "rename-project"
+                      ? "새 프로젝트 이름을 입력하세요."
+                      : "프로젝트 이름을 입력하세요."
+                  }
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   maxLength={100}
                 />
-                <div className="template-grid">
-                  {TEMPLATES.map((t) => (
-                    <button
-                      type="button"
-                      className={template === t.id ? "selected" : ""}
-                      key={t.id}
-                      onClick={() => setTemplate(t.id)}
-                    >
-                      <Code2 size={20} />
-                      <strong>{t.title}</strong>
-                      <small>{t.description}</small>
-                    </button>
-                  ))}
-                </div>
                 {formError && (
                   <p role="alert" className="error-text">
                     {formError}
                   </p>
                 )}
-                <button className="primary wide">프로젝트 만들기</button>
+                <button className="primary wide">
+                  {modal === "rename-project"
+                    ? "프로젝트 이름 바꾸기"
+                    : "프로젝트 만들기"}
+                </button>
               </form>
             </>
           )}
@@ -2561,7 +3112,11 @@ export function EditorApp({ config }: { config: AppConfig }) {
                 </p>
               )}
               <div className="dialog-actions">
-                <button type="button" onClick={() => void download()}>
+                <button
+                  type="button"
+                  title="내 컴퓨터에 다운로드"
+                  onClick={() => void download()}
+                >
                   <Download size={14} /> ZIP 다운로드
                 </button>
                 <button
@@ -2652,28 +3207,40 @@ export function EditorApp({ config }: { config: AppConfig }) {
               <p>
                 {config.demo
                   ? "데모는 외부 모델을 호출하지 않으며 비용이 발생하지 않습니다."
-                  : usage
-                    ? `오늘 사용 $${usage.costUsd.toFixed(4)} · 이번 달 $${(usage.monthCostUsd ?? 0).toFixed(4)} · 예약 $${usage.reservedUsd.toFixed(4)} · 일일 한도 $${usage.dailyLimitUsd}`
-                    : "예산은 개발 이후 결정합니다. 설정 전 실제 AI 호출은 비활성입니다."}
+                  : usageStatus === "error"
+                    ? "사용량을 불러오지 못했습니다. 다시 조회해주세요. 편집과 저장은 계속할 수 있습니다."
+                    : usage
+                      ? `오늘 사용 $${usage.costUsd.toFixed(4)} · 이번 달 $${(usage.monthCostUsd ?? 0).toFixed(4)} · 예약 $${usage.reservedUsd.toFixed(4)} · 일일 한도 $${usage.dailyLimitUsd}`
+                      : "사용량을 확인하고 있습니다…"}
               </p>
+              {!config.demo && (
+                <button onClick={() => void refreshUsage()}>
+                  사용량 다시 조회
+                </button>
+              )}
+              {!config.demo && !config.ai && (
+                <p>현재 실제 AI 호출은 비활성입니다.</p>
+              )}
               {usage && (
                 <p>
                   입력 {usage.promptTokens} · 출력 {usage.completionTokens} 토큰
                 </p>
               )}
-              <p>
-                최근 7일 $
-                {usageDays
-                  .filter(
-                    (d) => Date.parse(d.date) >= usageClock - 7 * 86400000,
-                  )
-                  .reduce((sum, d) => sum + Number(d.cost_usd), 0)
-                  .toFixed(4)}{" "}
-                · 최근 31일 $
-                {usageDays
-                  .reduce((sum, d) => sum + Number(d.cost_usd), 0)
-                  .toFixed(4)}
-              </p>
+              {usage && (
+                <p>
+                  최근 7일 $
+                  {usageDays
+                    .filter(
+                      (d) => Date.parse(d.date) >= usageClock - 7 * 86400000,
+                    )
+                    .reduce((sum, d) => sum + Number(d.cost_usd), 0)
+                    .toFixed(4)}{" "}
+                  · 최근 31일 $
+                  {usageDays
+                    .reduce((sum, d) => sum + Number(d.cost_usd), 0)
+                    .toFixed(4)}
+                </p>
+              )}
               {prices.map((p) => (
                 <p key={p.id}>
                   {p.id}: 입력{" "}
@@ -2712,13 +3279,44 @@ export function EditorApp({ config }: { config: AppConfig }) {
     </div>
   );
 }
-function Markdown({ content }: { content: string }) {
+function Markdown({
+  content,
+  chat = false,
+}: {
+  content: string;
+  chat?: boolean;
+}) {
   const [html, setHtml] = useState("");
   useEffect(() => {
     let live = true;
     void Promise.all([import("marked"), import("dompurify")]).then(
-      async ([{ marked }, { default: purify }]) => {
-        const rendered = await marked.parse(content);
+      async ([{ marked, Marked }, { default: purify }]) => {
+        const parser = chat
+          ? new Marked({
+              extensions: [
+                {
+                  name: "koreanStrong",
+                  level: "inline",
+                  start: (src) => src.indexOf("**"),
+                  tokenizer(src) {
+                    const match = /^\*\*(?=\S)([^\n]+?\S)\*\*(?=[가-힣])/.exec(
+                      src,
+                    );
+                    if (match)
+                      return {
+                        type: "koreanStrong",
+                        raw: match[0],
+                        tokens: this.lexer.inlineTokens(match[1]),
+                      };
+                  },
+                  renderer(token) {
+                    return `<strong>${this.parser.parseInline(token.tokens ?? [])}</strong>`;
+                  },
+                },
+              ],
+            })
+          : marked;
+        const rendered = await parser.parse(content);
         if (live)
           setHtml(
             purify.sanitize(rendered, {
@@ -2731,41 +3329,12 @@ function Markdown({ content }: { content: string }) {
     return () => {
       live = false;
     };
-  }, [content]);
+  }, [content, chat]);
   return (
     <section
-      className="markdown-preview"
-      aria-label="마크다운 미리보기"
+      className={chat ? "message-markdown" : "markdown-preview"}
+      aria-label={chat ? undefined : "마크다운 미리보기"}
       dangerouslySetInnerHTML={{ __html: html }}
     />
-  );
-}
-function MessageBody({
-  text,
-  onSave,
-}: {
-  text: string;
-  onSave: (code: string) => void;
-}) {
-  const parts = text.split(/(```[\s\S]*?```)/g);
-  return (
-    <div className="message-text">
-      {parts.map((part, i) =>
-        part.startsWith("```") ? (
-          <div className="code-block" key={i}>
-            <pre>{part.replace(/^```[^\n]*\n?/, "").replace(/```$/, "")}</pre>
-            <button
-              onClick={() =>
-                onSave(part.replace(/^```[^\n]*\n?/, "").replace(/```$/, ""))
-              }
-            >
-              코드 복사 · 파일 만들기
-            </button>
-          </div>
-        ) : (
-          <p key={i}>{part}</p>
-        ),
-      )}
-    </div>
   );
 }

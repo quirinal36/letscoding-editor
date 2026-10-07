@@ -1,23 +1,248 @@
+import {
+  requestRefusal,
+  replaceExact,
+  rewriteNeedsReview,
+} from "../src/lib/ai-policy";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import JSZip from "jszip";
 import { createProject } from "../src/lib/templates";
 import {
   assertPath,
+  assertStorageLimit,
   textFile,
   moveFile,
   applyProposal,
+  applyProposals,
   validateFiles,
+  formatBytes,
+  assertUnreferencedMove,
   LIMITS,
+  mergeRemoteFiles,
 } from "../src/lib/vfs";
 import {
   createArtifact,
   importArtifact,
   validateArtifact,
 } from "../src/lib/artifact";
-import { systemPrompt } from "../src/lib/server/ai";
+import {
+  systemPrompt,
+  projectContext,
+  assertFilesRead,
+  chat,
+} from "../src/lib/server/ai";
 import { demoAnswer } from "../src/lib/demo-ai";
 import { appConfig } from "../src/lib/server/config";
+import { monthlyUsageLabel } from "../src/lib/usage";
+
+test("student content policy refuses before file work; exact edits preserve the remaining game", () => {
+  for (const request of [
+    "카지노 게임 만들어줘",
+    "정치 홍보 사이트 만들어줘",
+    "종교 전도 앱 만들어줘",
+    "음란 사이트 만들어줘",
+  ]) {
+    assert.match(requestRefusal(request)!, /파일은 변경하지 않았습니다/);
+    assert.deepEqual(demoAnswer(createProject(), request).proposals, []);
+  }
+  assert.equal(requestRefusal("스네이크 게임 만들어줘"), null);
+  const project = createProject("game");
+  const original = project.files["script.js"].content;
+  const changes = replaceExact(project, [
+    { path: "script.js", before: "score += 1;", after: "score += 2;" },
+  ]);
+  assert.equal(
+    changes[0].content,
+    original.replace("score += 1;", "score += 2;"),
+  );
+  assert.equal(project.files["script.js"].content, original);
+  assert.throws(
+    () =>
+      replaceExact(project, [
+        { path: "script.js", before: "missing", after: "" },
+      ]),
+    /원문/,
+  );
+  assert.throws(
+    () =>
+      replaceExact(project, [
+        { path: "script.js", before: "score", after: "points" },
+      ]),
+    /원문/,
+  );
+  assert.equal(rewriteNeedsReview(project, "script.js", "버튼 수정해줘"), true);
+  assert.equal(
+    rewriteNeedsReview(project, "script.js", "버튼 수정해줘", true),
+    false,
+  );
+  assert.equal(
+    rewriteNeedsReview(project, "script.js", "프로젝트 전체를 새로 만들어줘"),
+    false,
+  );
+  assert.equal(
+    rewriteNeedsReview(createProject("blank"), "index.html", "게임 만들어줘"),
+    false,
+  );
+});
+
+test("unsupported image requests return a chat explanation without a model or budget call", async () => {
+  const settings = {
+    NEXT_PUBLIC_SUPABASE_URL: "https://image-test.example.test",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-only",
+    SUPABASE_SERVICE_ROLE_KEY: "test-only",
+    OPENROUTER_API_KEY: "test-only",
+    OPENROUTER_MODEL_CODE: "test-code",
+    EDITOR_AI_ENABLED: "true",
+    EDITOR_IMAGE_ENABLED: "false",
+    EDITOR_AI_DAILY_LIMIT_USD: "5",
+    EDITOR_AI_MONTHLY_LIMIT_USD: "2",
+    EDITOR_AI_MAX_TURN_USD: "1",
+  };
+  const previous = Object.fromEntries(
+    Object.keys(settings).map((key) => [key, process.env[key]]),
+  );
+  const oldFetch = globalThis.fetch;
+  let saves = 0;
+  try {
+    Object.assign(process.env, settings);
+    globalThis.fetch = async (input) => {
+      assert.match(String(input), /\/rest\/v1\/rpc\/editor_save_project$/);
+      saves++;
+      return Response.json({ revision: 0, metadataRevision: 1 });
+    };
+    const project = createProject("blank", "이미지 안내");
+    const response = await chat(
+      { id: crypto.randomUUID(), role: "student" },
+      project,
+      {
+        projectId: project.id,
+        threadId: project.threads[0].id,
+        text: "사과 이미지 만들어줘",
+        model: "test-code",
+        images: [],
+        previewErrors: [],
+      },
+      new Request("https://image-test.example.test/api/editor"),
+    );
+    const result = await response.json();
+    assert.equal(result.type, "done");
+    assert.match(
+      result.message.text,
+      /^이 도구는 이미지 생성, 편집 기능을 제공하지 않습니다\./,
+    );
+    assert.deepEqual(result.message.proposals, []);
+    assert.equal(saves, 1);
+    for (const text of [
+      "카지노 게임 만들어줘",
+      "정치 사이트 만들어줘",
+      "종교 앱 만들어줘",
+      "음란 게임 만들어줘",
+    ]) {
+      const refused = await chat(
+        { id: crypto.randomUUID(), role: "student" },
+        project,
+        {
+          projectId: project.id,
+          threadId: project.threads[0].id,
+          text,
+          model: "test-code",
+          images: [],
+          previewErrors: [],
+        },
+        new Request("https://image-test.example.test/api/editor"),
+      );
+      const event = await refused.json();
+      assert.match(event.message.text, /지원하지 않습니다/);
+      assert.deepEqual(event.message.proposals, []);
+    }
+    assert.equal(saves, 5);
+  } finally {
+    globalThis.fetch = oldFetch;
+    for (const key of Object.keys(settings)) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+});
+
+test("new conversations receive Markdown memory; unread or partial code cannot be overwritten", () => {
+  const project = createProject("blank", "숫자 맞히기");
+  project.files["PROJECT.md"] = textFile(
+    "# 숫자 맞히기\n1~100 사이 숫자를 맞히며 횟수를 표시합니다.",
+  );
+  project.files["script.js"] = textFile("guessNumber();".repeat(3000));
+  const instructions = systemPrompt(project);
+  assert.match(instructions, /폴더 정리해줘.*파일·폴더 구조 정리/);
+  assert.match(
+    instructions,
+    /정리 노트·할 일 앱을 만들거나 기존 화면·기능을 교체하지 않는다/,
+  );
+  assert.match(instructions, /저장 안내는 넣지 않는다/);
+  assert.match(instructions, /현재 파일:/);
+  assert.throws(
+    () =>
+      assertUnreferencedMove(
+        {
+          ...project,
+          files: {
+            ...project.files,
+            "index.html": textFile('<script src="./script.js"></script>'),
+          },
+        },
+        "script.js",
+      ),
+    /참조 경로/,
+  );
+  assert.doesNotThrow(() => assertUnreferencedMove(project, "PROJECT.md"));
+  const context = projectContext(project);
+  assert.deepEqual(
+    context.map((file) => file.path),
+    ["PROJECT.md"],
+  );
+  assert.match(context[0].content, /숫자 맞히기/);
+  assert.ok(new TextEncoder().encode(JSON.stringify(context)).length <= 8192);
+  const reads = new Map(
+    context.map((file) => [file.path, file.content.length]),
+  );
+  assert.throws(() => assertFilesRead(project, ["script.js"], reads), /끝까지/);
+  reads.set("script.js", 8192);
+  assert.throws(() => assertFilesRead(project, ["script.js"], reads), /끝까지/);
+  reads.set("script.js", project.files["script.js"].content.length);
+  assert.doesNotThrow(() =>
+    assertFilesRead(project, ["script.js", "new.js", "PROJECT.md"], reads),
+  );
+  project.files["large.md"] = textFile("가".repeat(9000));
+  assert.ok(!projectContext(project).some((file) => file.path === "large.md"));
+});
+
+test("late server replies preserve concurrent local edits, additions and removals", () => {
+  const base = {
+    "index.html": textFile("before"),
+    "old.js": textFile("old"),
+    "style.css": textFile("black"),
+  };
+  const local = {
+    "index.html": textFile("typed during approval"),
+    "new.js": base["old.js"],
+    "style.css": base["style.css"],
+  };
+  const remote = {
+    ...base,
+    "index.html": textFile("AI result"),
+    "style.css": textFile("blue"),
+  };
+  const merged = mergeRemoteFiles(base, local, remote);
+  assert.equal(merged.files["index.html"].content, "typed during approval");
+  assert.equal(merged.files["style.css"].content, "blue");
+  assert.equal(merged.files["new.js"].content, "old");
+  assert.equal(merged.files["old.js"], undefined);
+  assert.equal(base["index.html"].content, "before");
+  assert.deepEqual([...merged.changed].sort(), [
+    "index.html",
+    "new.js",
+    "old.js",
+  ]);
+});
 
 test("path traversal, encoded paths and secret files are rejected", () => {
   for (const path of [
@@ -201,4 +426,454 @@ test("deployment ZIP digest ignores insertion order and wall-clock time", async 
   for (const file of Object.values(zip.files))
     if (!file.dir)
       assert.equal(file.date.toISOString(), "1980-01-01T00:00:00.000Z");
+});
+
+test("generated files commit as one revision; stale, duplicate and invalid batches leave originals intact", () => {
+  const project = createProject("blank");
+  const original = structuredClone(project);
+  const proposals = [
+    { path: "index.html", content: "<h1>게임</h1>" },
+    { path: "style.css", content: "body { color: green; }" },
+    { path: "script.js", content: "console.log('ready');" },
+  ].map((file) => ({
+    id: crypto.randomUUID(),
+    operation: "write" as const,
+    ...file,
+    baseRevision: project.revision,
+    status: "pending" as const,
+  }));
+  const next = applyProposals(project, proposals);
+  assert.equal(next.revision, project.revision + 1);
+  for (const proposal of proposals)
+    assert.equal(next.files[proposal.path].content, proposal.content);
+  assert.deepEqual(project, original);
+  assert.throws(() => applyProposals(next, proposals), /오래/);
+  assert.throws(
+    () => applyProposals(project, [...proposals, proposals[0]]),
+    /서로 다른/,
+  );
+  assert.throws(
+    () =>
+      applyProposals(project, [
+        proposals[0],
+        { ...proposals[1], path: ".env.local" },
+      ]),
+    /금지/,
+  );
+  assert.throws(
+    () => applyProposals(project, [{ ...proposals[0], operation: "delete" }]),
+    /개별 확인/,
+  );
+  assert.deepEqual(project, original);
+});
+
+test("account storage permits 100MB exactly and rejects invalid or excessive usage", () => {
+  const files = Object.fromEntries(
+    Array.from({ length: 6 }, (_, i) => [
+      `${i}.png`,
+      {
+        kind: "binary" as const,
+        content: "blob:test",
+        mime: "image/png",
+        size: LIMITS.upload,
+      },
+    ]),
+  );
+  assert.equal(validateFiles(files).total, 30 * 1024 * 1024);
+  assert.throws(
+    () => validateFiles({ ...files, "extra.txt": textFile("x") }),
+    /30MB/,
+  );
+  assert.equal(formatBytes(0), "0B");
+  assert.equal(formatBytes(1024 * 3), "3KB");
+  assert.equal(formatBytes(1024 * 1024), "1MB");
+  assert.equal(formatBytes(1536), "1.5KB");
+  assertStorageLimit(LIMITS.account);
+  assertStorageLimit(0);
+  for (const bytes of [LIMITS.account + 1, -1, NaN, Infinity, 0.5])
+    assert.throws(() => assertStorageLimit(bytes), /100MB/);
+});
+
+test("monthly usage accounts for reservations and resets on the first in Korea", () => {
+  const usage = {
+    dailyLimitUsd: 5,
+    monthlyLimitUsd: 2,
+    costUsd: 0.2,
+    reservedUsd: 0.1,
+    monthCostUsd: 1.4,
+    monthReservedUsd: 0.3,
+    promptTokens: 0,
+    completionTokens: 0,
+  };
+  assert.equal(
+    monthlyUsageLabel(usage, Date.parse("2026-10-06T15:00:00Z")),
+    "15% 남음 (25일 후 초기화)",
+  );
+  assert.equal(
+    monthlyUsageLabel(
+      { ...usage, monthCostUsd: 2 },
+      Date.parse("2026-10-31T14:59:59Z"),
+    ),
+    "0% 남음 (1일 후 초기화)",
+  );
+  assert.equal(
+    monthlyUsageLabel(
+      { ...usage, monthCostUsd: 0, monthReservedUsd: 0 },
+      Date.parse("2026-10-31T15:00:00Z"),
+    ),
+    "100% 남음 (30일 후 초기화)",
+  );
+  assert.equal(
+    monthlyUsageLabel(
+      { ...usage, monthlyLimitUsd: 0 },
+      Date.parse("2028-02-28T15:00:00Z"),
+    ),
+    "0% 남음 (1일 후 초기화)",
+  );
+});
+
+test("Luna chat transport keeps ZDR, tools and budget reservation enabled", async () => {
+  const settings = {
+    NEXT_PUBLIC_SUPABASE_URL: "https://luna-test.example.test",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-only",
+    SUPABASE_SERVICE_ROLE_KEY: "test-only",
+    OPENROUTER_API_KEY: "test-only",
+    OPENROUTER_MODEL_CODE: "openai/gpt-6-luna",
+    EDITOR_AI_ENABLED: "true",
+    EDITOR_AI_DAILY_LIMIT_USD: "5",
+    EDITOR_AI_MONTHLY_LIMIT_USD: "2",
+    EDITOR_AI_MAX_TURN_USD: "1",
+  };
+  const previous = Object.fromEntries(
+    Object.keys(settings).map((key) => [key, process.env[key]]),
+  );
+  const oldFetch = globalThis.fetch;
+  const project = createProject("blank", "Transport test");
+  let reserved = false,
+    sent = false,
+    settled = false;
+  let scenario = "tools",
+    remaining = 2,
+    providerCalls = 0,
+    lastMaxOutput = 0;
+  try {
+    Object.assign(process.env, settings);
+    globalThis.fetch = async (input, init) => {
+      const req = new Request(input, init);
+      const url = new URL(req.url);
+      if (url.pathname === "/api/v1/models")
+        return Response.json({
+          data: [
+            {
+              id: "openai/gpt-6-luna",
+              pricing: { prompt: "0.0000001", completion: "0.0000005" },
+              top_provider: { max_completion_tokens: 128000 },
+            },
+          ],
+        });
+      if (url.pathname === "/rest/v1/rpc/editor_reserve_usage") {
+        const body = await req.json();
+        assert.ok(
+          body.p_amount > 0 && body.p_amount <= Math.min(1, remaining) + 1e-9,
+        );
+        assert.equal(body.p_monthly, 2);
+        reserved = true;
+        return Response.json(null);
+      }
+      if (url.pathname === "/api/v1/chat/completions") {
+        providerCalls++;
+        assert.ok(reserved);
+        const body = await req.json();
+        lastMaxOutput = body.max_tokens;
+        assert.ok(lastMaxOutput > 0 && lastMaxOutput <= 128000);
+        assert.equal(body.model, "openai/gpt-6-luna");
+        assert.equal(body.reasoning.effort, "none");
+        assert.equal(body.provider.zdr, true);
+        assert.equal(body.provider.data_collection, "deny");
+        assert.ok(
+          body.tools.some(
+            (t: { function: { name: string } }) =>
+              t.function.name === "write_files",
+          ),
+        );
+        if (!sent) {
+          sent = true;
+          let args = JSON.stringify({
+            files: [
+              { path: "PROJECT.md", content: "# Test\nGenerated greeting.txt" },
+              { path: "greeting.txt", content: "hidden generated code" },
+            ],
+          });
+          if (scenario === "tool-error")
+            args = JSON.stringify({
+              files: [{ path: "greeting.txt", content: "failed code" }],
+            });
+          if (scenario === "invalid-json") args = args.slice(0, -8);
+          const chunks = [
+            {
+              id: "tools",
+              model: body.model,
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: "write-test",
+                        type: "function",
+                        function: {
+                          name: "write_files",
+                          arguments: args.slice(0, 20),
+                        },
+                      },
+                    ],
+                  },
+                  finish_reason: null,
+                },
+              ],
+            },
+            {
+              id: "tools",
+              model: body.model,
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    tool_calls: [
+                      { index: 0, function: { arguments: args.slice(20) } },
+                    ],
+                  },
+                  finish_reason: null,
+                },
+              ],
+            },
+            {
+              id: "tools",
+              model: body.model,
+              choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+              usage: {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: 0,
+              },
+            },
+          ];
+          return new Response(
+            chunks
+              .map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
+              .join("") + "data: [DONE]\n\n",
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        }
+        const chunks = [
+          {
+            id: "test",
+            model: body.model,
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  role: "assistant",
+                  reasoning: "비공개 준비 내용",
+                  content:
+                    scenario === "tools"
+                      ? "테스트 응답입니다."
+                      : scenario === "false-completion"
+                        ? "투호 게임을 구현했습니다."
+                        : scenario === "false-progress"
+                          ? "아직 작업 중입니다. 잠시 기다려주세요."
+                          : "",
+                },
+                finish_reason: null,
+              },
+            ],
+          },
+          {
+            id: "test",
+            model: body.model,
+            choices: [
+              {
+                index: 0,
+                delta: {},
+                finish_reason: scenario === "length" ? "length" : "stop",
+              },
+            ],
+            usage: {
+              prompt_tokens: 100,
+              completion_tokens: 20,
+              total_tokens: 120,
+            },
+          },
+        ];
+        return new Response(
+          chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") +
+            "data: [DONE]\n\n",
+          { headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      if (url.pathname === "/rest/v1/rpc/editor_save_project")
+        return Response.json({ revision: 0, metadataRevision: 1 });
+      if (url.pathname === "/rest/v1/editor_projects")
+        return Response.json({
+          id: project.id,
+          title: project.title,
+          template: "blank",
+          revision: 0,
+          metadata_revision: 1,
+          updated_at: project.updatedAt,
+          snapshot: { threads: project.threads },
+        });
+      if (url.pathname === "/rest/v1/editor_files") return Response.json([]);
+      if (url.pathname === "/rest/v1/editor_ai_usage_daily")
+        return Response.json([
+          {
+            date: new Date().toLocaleDateString("en-CA", {
+              timeZone: "Asia/Seoul",
+            }),
+            cost_usd: 2 - remaining,
+            reserved_usd: 0,
+          },
+        ]);
+      if (url.pathname === "/rest/v1/rpc/editor_settle_usage") {
+        const body = await req.json();
+        assert.equal(body.p_prompt, 100);
+        assert.equal(body.p_completion, 20);
+        assert.ok(Math.abs(body.p_cost - 0.00002) < 1e-10);
+        settled = true;
+        return Response.json(null);
+      }
+      throw new Error(`Unexpected test endpoint: ${url.pathname}`);
+    };
+    const response = await chat(
+      { id: crypto.randomUUID(), role: "student" },
+      project,
+      {
+        projectId: project.id,
+        threadId: project.threads[0].id,
+        text: "현재 프로젝트를 설명해줘",
+        model: "openai/gpt-6-luna",
+        images: [],
+        previewErrors: [],
+      },
+      new Request("https://luna-test.example.test/api/editor"),
+    );
+    const events = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.ok(
+      !events.some((event) => event.type === "error"),
+      JSON.stringify(events),
+    );
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === "done" && event.message.text === "테스트 응답입니다.",
+      ),
+    );
+    assert.ok(!JSON.stringify(events).includes("비공개 준비 내용"));
+    const progress = events.filter((event) => event.type === "progress");
+    assert.ok(progress.length > 0);
+    assert.ok(progress.at(-1).characters > 20);
+    assert.deepEqual(Object.keys(progress[0]).sort(), ["characters", "type"]);
+    assert.equal(
+      events.find((event) => event.type === "done").message.proposals.length,
+      2,
+    );
+    assert.ok(sent && reserved && settled);
+    for (scenario of [
+      "empty",
+      "length",
+      "tool-error",
+      "invalid-json",
+      "false-completion",
+      "false-progress",
+    ]) {
+      sent = !["tool-error", "invalid-json"].includes(scenario);
+      const failed = await chat(
+        { id: crypto.randomUUID(), role: "student" },
+        project,
+        {
+          projectId: project.id,
+          threadId: project.threads[0].id,
+          text: "게임을 수정해줘",
+          model: "openai/gpt-6-luna",
+          images: [],
+          previewErrors: [],
+        },
+        new Request("https://luna-test.example.test/api/editor"),
+      );
+      const failedBody = await failed.text();
+      assert.ok(failedBody.includes('"type":"progress"'), scenario);
+      assert.ok(!failedBody.includes("비공개 준비 내용"), scenario);
+      const done = failedBody
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+        .find((event) => event.type === "done");
+      assert.equal(done.message.status, "error", scenario);
+      assert.match(
+        done.message.text,
+        /못했습니다|못하고|중단되었습니다/,
+        scenario,
+      );
+      assert.equal(done.message.proposals.length, 0, scenario);
+      if (["tool-error", "invalid-json"].includes(scenario)) {
+        const diagnostic = done.message.tools.find(
+          (t: { output: { status?: string } }) => t.output.status === "error",
+        );
+        assert.equal(diagnostic.input, null);
+        assert.equal(
+          diagnostic.output.kind,
+          scenario === "invalid-json" ? "invalid-input" : "execution",
+        );
+      }
+    }
+
+    scenario = "empty";
+    remaining = 0.1;
+    sent = true;
+    const limited = await chat(
+      { id: crypto.randomUUID(), role: "student" },
+      project,
+      {
+        projectId: project.id,
+        threadId: project.threads[0].id,
+        text: "설명해줘",
+        model: "openai/gpt-6-luna",
+        images: [],
+        previewErrors: [],
+      },
+      new Request("https://luna-test.example.test/api/editor"),
+    );
+    await limited.text();
+    assert.ok(lastMaxOutput < 128000, "remaining monthly budget limits output");
+    remaining = 0;
+    const before = providerCalls;
+    await assert.rejects(
+      () =>
+        chat(
+          { id: crypto.randomUUID(), role: "student" },
+          project,
+          {
+            projectId: project.id,
+            threadId: project.threads[0].id,
+            text: "다시 만들어줘",
+            model: "openai/gpt-6-luna",
+            images: [],
+            previewErrors: [],
+          },
+          new Request("https://luna-test.example.test/api/editor"),
+        ),
+      /예산/,
+    );
+    assert.equal(providerCalls, before, "exhausted budget makes no paid call");
+  } finally {
+    globalThis.fetch = oldFetch;
+    for (const key of Object.keys(settings)) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
 });

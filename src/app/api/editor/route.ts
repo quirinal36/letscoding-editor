@@ -3,6 +3,7 @@ import { logAction } from "@/lib/observability";
 import { z } from "zod";
 import {
   activeUser,
+  aiUsage,
   admin,
   authenticate,
   get,
@@ -11,13 +12,20 @@ import {
   reserve,
   save,
   settle,
+  storageUsage,
   uuid,
 } from "@/lib/server/repository";
 import { generateImageFile } from "@/lib/server/image";
 import { chat, chatInput } from "@/lib/server/ai";
 import { appConfig, positive, turnReservation } from "@/lib/server/config";
 import { deploy, deployForm, launchDeployment } from "@/lib/server/deploy";
-import { applyProposal, assertPath, LIMITS } from "@/lib/vfs";
+import {
+  applyProposal,
+  applyProposals,
+  assertPath,
+  assertStorageLimit,
+  LIMITS,
+} from "@/lib/vfs";
 import { createProject } from "@/lib/templates";
 import type { Project } from "@/lib/types";
 export const runtime = "nodejs";
@@ -54,10 +62,12 @@ export async function POST(request: Request) {
         "upload",
         "attachment-upload",
         "thread",
+        "delete-thread",
         "chat",
         "approve",
         "reject",
         "usage",
+        "storage",
         "deploy",
         "launch",
         "unlink",
@@ -134,6 +144,8 @@ export async function POST(request: Request) {
     }
     if (action === "delete") {
       const project = await get(user, uuid.parse(body.projectId));
+      if (z.string().parse(body.title) !== project.title)
+        throw new Error("프로젝트 이름을 정확하게 입력해주세요.");
       project.deletedAt = new Date().toISOString();
       await save(user, project, project.revision);
       return Response.json({ ok: true });
@@ -165,7 +177,7 @@ export async function POST(request: Request) {
               {
                 id: crypto.randomUUID(),
                 title: "새 대화",
-                autoApply: false,
+                autoApply: true,
                 messages: [],
               },
             ],
@@ -184,14 +196,22 @@ export async function POST(request: Request) {
           size: z.number().int().positive().max(LIMITS.upload),
         })
         .parse(body);
-      await get(user, input.projectId);
+      const project = await get(user, input.projectId);
       assertPath(input.path);
+      const usage = await storageUsage(user);
+      assertStorageLimit(
+        usage.usedBytes + input.size - (project.files[input.path]?.size ?? 0),
+      );
       const storagePath = `${user.id}/${input.projectId}/${crypto.randomUUID()}`;
       const result = await admin()
         .storage.from("editor-files")
         .createSignedUploadUrl(storagePath);
       if (result.error) throw new Error("업로드 주소를 만들지 못했습니다.");
-      return Response.json({ storagePath, token: result.data.token });
+      return Response.json({
+        storagePath,
+        token: result.data.token,
+        signedUrl: result.data.signedUrl,
+      });
     }
     if (action === "attachment-upload") {
       const input = z
@@ -210,7 +230,39 @@ export async function POST(request: Request) {
         .storage.from("editor-attachments")
         .createSignedUploadUrl(storagePath);
       if (result.error) throw new Error("첨부 업로드 주소 생성 실패");
-      return Response.json({ storagePath, token: result.data.token });
+      return Response.json({
+        storagePath,
+        token: result.data.token,
+        signedUrl: result.data.signedUrl,
+      });
+    }
+    if (action === "delete-thread") {
+      const project = await get(user, uuid.parse(body.projectId));
+      const threadId = uuid.parse(body.threadId);
+      let next = project;
+      if (project.threads.some((thread) => thread.id === threadId)) {
+        project.threads = project.threads.filter(
+          (thread) => thread.id !== threadId,
+        );
+        if (!project.threads.length)
+          project.threads.push({
+            id: crypto.randomUUID(),
+            title: "새 대화",
+            autoApply: true,
+            messages: [],
+          });
+        next = await save(user, project, project.revision, false);
+      }
+      // Messages cascade with their thread; retries also clean up after a failed delete.
+      const { error } = await admin()
+        .from("editor_ai_threads")
+        .delete()
+        .eq("id", threadId)
+        .eq("project_id", project.id)
+        .eq("user_id", user.id);
+      if (error)
+        throw new Error("대화 삭제를 완료하지 못했습니다. 다시 시도해주세요.");
+      return Response.json(next);
     }
     if (action === "thread") {
       const project = await get(user, uuid.parse(body.projectId));
@@ -224,7 +276,7 @@ export async function POST(request: Request) {
         project.threads.push({
           id: crypto.randomUUID(),
           title: "새 대화",
-          autoApply: false,
+          autoApply: true,
           messages: [],
         });
       return Response.json(await save(user, project, project.revision, false));
@@ -235,6 +287,44 @@ export async function POST(request: Request) {
     }
     if (action === "approve" || action === "reject") {
       const project = await get(user, uuid.parse(body.projectId));
+      if (body.proposalIds) {
+        const ids = z
+          .array(uuid)
+          .min(1)
+          .max(10)
+          .refine((ids) => new Set(ids).size === ids.length)
+          .parse(body.proposalIds);
+        const message = project.threads
+          .flatMap((t) => t.messages)
+          .find((m) => m.proposals.some((p) => p.id === ids[0]));
+        if (!message || (action === "approve" && message.status !== "complete"))
+          throw new Error("완료된 작업만 자동 반영할 수 있습니다.");
+        const proposals = ids.map((id) => {
+          const proposal = message.proposals.find((p) => p.id === id);
+          if (!proposal)
+            throw new Error("같은 작업의 변경안만 함께 반영할 수 있습니다.");
+          return proposal;
+        });
+        if (body.automatic && proposals.some((p) => p.requiresReview))
+          throw new Error("기존 파일 전체 교체는 비교 후 직접 승인해주세요.");
+        if (proposals.some((p) => p.status !== "pending"))
+          throw new Error("처리할 변경안이 없습니다.");
+        if (
+          message.proposals.some((p) => p.requiresReview) &&
+          message.proposals
+            .filter((p) => p.status === "pending")
+            .some((p) => !ids.includes(p.id))
+        )
+          throw new Error(
+            "전체 교체 작업은 모든 파일을 함께 승인하거나 무시해주세요.",
+          );
+        const updated =
+          action === "approve" ? applyProposals(project, proposals) : project;
+        for (const proposal of proposals)
+          proposal.status = action === "approve" ? "applied" : "rejected";
+        await save(user, updated, project.revision, action === "approve");
+        return Response.json(await get(user, project.id));
+      }
       const proposalId = uuid.parse(body.proposalId),
         proposal = project.threads
           .flatMap((t) => t.messages)
@@ -248,36 +338,15 @@ export async function POST(request: Request) {
           await save(user, project, project.revision, false),
         );
       }
+      if (body.automatic && proposal.requiresReview)
+        throw new Error("기존 파일 전체 교체는 비교 후 직접 승인해주세요.");
       const updated = applyProposal(project, proposal);
       proposal.status = "applied";
       await save(user, updated, project.revision);
       return Response.json(await get(user, project.id));
     }
-    if (action === "usage") {
-      const { data, error } = await admin()
-        .from("editor_ai_usage_daily")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("date", { ascending: false })
-        .limit(31);
-      if (error) throw new Error("사용량 테이블 준비가 필요합니다.");
-      const today = new Date().toLocaleDateString("en-CA", {
-          timeZone: "Asia/Seoul",
-        }),
-        row = data?.find((r) => r.date === today);
-      return Response.json({
-        costUsd: Number(row?.cost_usd ?? 0),
-        reservedUsd: Number(row?.reserved_usd ?? 0),
-        dailyLimitUsd: positive("EDITOR_AI_DAILY_LIMIT_USD"),
-        monthlyLimitUsd: positive("EDITOR_AI_MONTHLY_LIMIT_USD"),
-        promptTokens: row?.prompt_tokens ?? 0,
-        completionTokens: row?.completion_tokens ?? 0,
-        days: data,
-        monthCostUsd: (data ?? [])
-          .filter((r) => r.date.startsWith(today.slice(0, 7)))
-          .reduce((sum, r) => sum + Number(r.cost_usd), 0),
-      });
-    }
+    if (action === "storage") return Response.json(await storageUsage(user));
+    if (action === "usage") return Response.json(await aiUsage(user));
     if (action === "launch") {
       return Response.json(
         await launchDeployment(

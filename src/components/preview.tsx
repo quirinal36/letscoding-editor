@@ -26,13 +26,24 @@ export function Preview({
   onNavigate: (path: string, line: number) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null),
-    channel = useRef(crypto.randomUUID()),
-    document = useRef<ReturnType<typeof buildPreview> | null>(null);
-  const [html, setHtml] = useState(""),
+    stage = useRef<HTMLDivElement>(null),
+    channel = useRef(crypto.randomUUID());
+  const [{ html, generation }, setDocument] = useState({
+      html: "",
+      generation: 0,
+    }),
     [width, setWidth] = useState("100%"),
+    [availableWidth, setAvailableWidth] = useState(0),
     [key, setKey] = useState(0),
     [logs, setLogs] = useState<ConsoleEntry[]>([]),
     [showConsole, setShowConsole] = useState(false);
+  useEffect(() => {
+    const observer = new ResizeObserver(([entry]) =>
+      setAvailableWidth(entry.contentRect.width),
+    );
+    observer.observe(stage.current!);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     let preview;
     try {
@@ -43,8 +54,10 @@ export function Preview({
         dispose: () => {},
       };
     }
-    document.current = preview;
-    setHtml(preview.html);
+    setDocument((previous) => ({
+      html: preview.html,
+      generation: previous.generation + 1,
+    }));
     setLogs([]);
     return () => preview.dispose();
   }, [files, key]);
@@ -73,7 +86,7 @@ export function Preview({
   }, []);
   useEffect(() => onConsole(logs), [logs, onConsole]);
   function popout() {
-    const wrapper = `<!doctype html><html lang="ko"><title>작품 미리보기</title><body style="margin:0"><iframe title="작품 미리보기" sandbox="allow-scripts" style="border:0;width:100%;height:100vh" srcdoc="${html.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe></body></html>`;
+    const wrapper = `<!doctype html><html lang="ko"><meta charset="utf-8"><title>작품 미리보기</title><body style="margin:0"><iframe title="작품 미리보기" sandbox="allow-scripts" style="border:0;width:100%;height:100vh" srcdoc="${html.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe></body></html>`;
     const url = URL.createObjectURL(new Blob([wrapper], { type: "text/html" }));
     window.open(url, "_blank", "noopener,noreferrer");
     setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -85,37 +98,66 @@ export function Preview({
           <span className="dot" /> index.html
         </span>
         <div className="toolbar-actions">
-          <button aria-label="모바일 폭" onClick={() => setWidth("375px")}>
+          <button
+            aria-label="모바일 폭"
+            title="모바일 화면으로 보기"
+            onClick={() => setWidth("375px")}
+          >
             <Smartphone size={15} />
           </button>
-          <button aria-label="태블릿 폭" onClick={() => setWidth("768px")}>
+          <button
+            aria-label="태블릿 폭"
+            title={
+              availableWidth < 768
+                ? "태블릿 보기는 미리보기 너비 768px 이상에서 사용할 수 있어요"
+                : "태블릿 화면으로 보기"
+            }
+            disabled={availableWidth < 768}
+            onClick={() => setWidth("768px")}
+          >
             <Tablet size={15} />
           </button>
-          <button aria-label="데스크톱 폭" onClick={() => setWidth("100%")}>
+          <button
+            aria-label="데스크톱 폭"
+            title={
+              availableWidth < 1024
+                ? "데스크톱 보기는 미리보기 너비 1024px 이상에서 사용할 수 있어요"
+                : "데스크톱 화면으로 보기"
+            }
+            disabled={availableWidth < 1024}
+            onClick={() => setWidth("100%")}
+          >
             <Monitor size={15} />
           </button>
           <span className="divider" />
           <button
             aria-label="미리보기 새로고침"
+            title="미리보기 새로고침"
             onClick={() => setKey((k) => k + 1)}
           >
             <RefreshCw size={15} />
           </button>
-          <button aria-label="미리보기 새 창" onClick={popout}>
+          <button
+            aria-label="미리보기 새 창"
+            title="미리보기 새 창으로 열기"
+            onClick={popout}
+          >
             <ExternalLink size={15} />
           </button>
         </div>
       </div>
-      <div className="preview-stage">
-        <iframe
-          ref={frame}
-          key={key}
-          title="작품 미리보기"
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          srcDoc={html}
-          style={{ width, maxWidth: "100%" }}
-        />
+      <div className="preview-stage" ref={stage}>
+        {html && (
+          <iframe
+            ref={frame}
+            key={generation}
+            title="작품 미리보기"
+            sandbox="allow-scripts"
+            referrerPolicy="no-referrer"
+            srcDoc={html}
+            style={{ width, maxWidth: "100%" }}
+          />
+        )}
       </div>
       <button
         className="console-toggle"
