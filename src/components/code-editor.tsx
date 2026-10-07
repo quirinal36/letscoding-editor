@@ -12,6 +12,7 @@ export function CodeEditor({
   onCursor,
   readOnly,
   jump,
+  onLargePaste,
 }: {
   path: string;
   content: string;
@@ -21,8 +22,14 @@ export function CodeEditor({
   onCursor: (line: number, column: number) => void;
   readOnly?: boolean;
   jump?: { line: number };
+  /** Called with the pasted line count when a single paste spans 20 lines or more. */
+  onLargePaste?: (lines: number) => void;
 }) {
-  const ref = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const ref = useRef<editor.IStandaloneCodeEditor | null>(null),
+    pasteHandler = useRef(onLargePaste);
+  useEffect(() => {
+    pasteHandler.current = onLargePaste;
+  }, [onLargePaste]);
   useEffect(() => {
     if (jump && ref.current) {
       ref.current.revealLineInCenter(jump.line);
@@ -54,6 +61,11 @@ export function CodeEditor({
         instance.onDidChangeCursorPosition((e) =>
           onCursor(e.position.lineNumber, e.position.column),
         );
+        instance.onDidPaste((event) => {
+          const lines =
+            event.range.endLineNumber - event.range.startLineNumber + 1;
+          if (lines >= 20) pasteHandler.current?.(lines);
+        });
         instance.onDidChangeCursorSelection(() => {
           const selection = instance.getSelection();
           onSelection(

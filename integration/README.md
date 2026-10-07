@@ -2,6 +2,8 @@
 
 # 라운지 연동 검토본
 
+**2026-10-07 미적용 검토본 추가: `process-record.sql`.** 수업 과정 기록(1·2단계)을 위한 `editor_revisions`(저장 출처), `editor_events`(학습 이벤트, 프로젝트당 하루 200건), `editor_snapshots`(체크포인트·게시 시점 파일 사본)와 서비스 전용 RPC 3개, 스냅샷이 참조하는 Storage 객체를 지우지 않도록 바꾼 `editor_cleanup_candidates`를 담았다. 운영 DB에는 적용하지 않았다. 라운지 저장소에서 기존 editor 마이그레이션 뒤에 새 migration으로 옮겨 staging에서 검증한 다음, 에디터 환경변수 `EDITOR_PROCESS_RECORD=true`를 켠다. 변수가 없으면 에디터는 기존 `editor_save_project`만 호출하고 과정 기록 API는 503으로 안내한다.
+
 이 폴더는 에디터 앱에서 실행하지 않는다. 공유 DB 적용 및 라운지 코드 반영 전 검토할 완성된 계약·SQL·어댑터·배포 코어 변경안이다. 계정 연결 검증은 아직 하지 않았다.
 
 **2026-10-04 DB 적용 완료:** SQL 두 파일의 초기 계약을 라운지 소유 `20261004115026_create_editor_schema_tables.sql` 하나로 묶어 운영 DB에 적용했다. Data API의 `editor` 노출도 완료했다. 이 폴더 SQL은 계속 참고용이며 재실행하거나 독립 원장으로 사용하지 않는다. 라운지 서버 어댑터·내부 배포 route·배포 코어는 이후 `94eeabc1`에 반영했다. 최신 실행 코드는 라운지 저장소가 소유하며 이 폴더는 초기 검토본이다. [원본과 검증 기록](https://github.com/yudanah/letscoding_lounge/blob/master/docs/2026-10-04-editor-migration.md)

@@ -1,6 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
-import type { Project } from "./types";
-import { localList, localSave } from "./local-store";
+import type {
+  Checkpoint,
+  CheckpointDetail,
+  Project,
+  SaveSource,
+} from "./types";
+import {
+  localCreateSnapshot,
+  localGetSnapshot,
+  localList,
+  localListSnapshots,
+  localSave,
+} from "./local-store";
 let supabase: ReturnType<typeof createClient> | undefined;
 export const browserSupabase = () =>
   (supabase ??= createClient(
@@ -84,7 +95,12 @@ export async function saveProject(
   expectedRevision: number,
   demo: boolean,
   advance = true,
-  upload: { signal?: AbortSignal; onProgress?: (message: string) => void } = {},
+  upload: {
+    signal?: AbortSignal;
+    onProgress?: (message: string) => void;
+    /** Only "import" is meaningful to the server; every other save is the student's own. */
+    source?: Extract<SaveSource, "student" | "import">;
+  } = {},
 ): Promise<Project> {
   if (demo) return localSave(project, expectedRevision, advance);
   const files = { ...project.files };
@@ -142,6 +158,7 @@ export async function saveProject(
         ),
       },
       expectedRevision,
+      source: upload.source ?? "student",
     })
   ).json()) as Project;
   return {
@@ -157,7 +174,11 @@ export async function saveProject(
   };
 }
 export async function hydrateProject(project: Project): Promise<Project> {
-  const files = { ...project.files };
+  return { ...project, files: await hydrateFiles(project.files) };
+}
+/** Signed binary URLs expire, so binaries become data URLs before the preview reads them. */
+async function hydrateFiles(source: Project["files"]) {
+  const files = { ...source };
   for (const [path, file] of Object.entries(files))
     if (file.kind === "binary" && file.content.startsWith("https:")) {
       const response = await fetch(file.content, {
@@ -176,7 +197,37 @@ export async function hydrateProject(project: Project): Promise<Project> {
       });
       files[path] = { ...file, content };
     }
-  return { ...project, files };
+  return files;
+}
+
+/** Deploy snapshots are made by the server during deployment; only the demo stores them here. */
+export async function createCheckpoint(
+  project: Project,
+  demo: boolean,
+  note?: string,
+  kind: Checkpoint["kind"] = "checkpoint",
+): Promise<Checkpoint> {
+  if (demo) return localCreateSnapshot(project, kind, note);
+  if (kind !== "checkpoint")
+    throw new Error("게시 체크포인트는 배포할 때 서버가 남깁니다.");
+  return (await api("checkpoint", { projectId: project.id, note })).json();
+}
+export async function listCheckpoints(
+  projectId: string,
+  demo: boolean,
+): Promise<Checkpoint[]> {
+  if (demo) return localListSnapshots(projectId);
+  return (await api("checkpoints", { projectId })).json();
+}
+export async function openCheckpoint(
+  projectId: string,
+  checkpointId: string,
+  demo: boolean,
+): Promise<CheckpointDetail> {
+  const detail: CheckpointDetail = demo
+    ? await localGetSnapshot(projectId, checkpointId)
+    : await (await api("checkpoint-files", { projectId, checkpointId })).json();
+  return { ...detail, files: await hydrateFiles(detail.files) };
 }
 
 export async function uploadAttachments(
