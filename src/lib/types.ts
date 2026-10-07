@@ -89,4 +89,6 @@ export type AppConfig = {
     inputPrice?: number;
     outputPrice?: number;
   }[];
+  /** Milliseconds between automatic saves while there are unsaved edits. */
+  autosaveMs: number;
 };

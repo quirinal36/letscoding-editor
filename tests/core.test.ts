@@ -408,6 +408,30 @@ test("forged ZIP metadata cannot bypass streaming inflation cap", async () => {
   await assert.rejects(() => importArtifact(bytes), /크기|size/);
 });
 
+test("autosave waits 60 seconds by default and clamps overrides", () => {
+  const previous = process.env.EDITOR_AUTOSAVE_MS;
+  try {
+    delete process.env.EDITOR_AUTOSAVE_MS;
+    assert.equal(appConfig().autosaveMs, 60000);
+    for (const [raw, expected] of [
+      ["", 60000],
+      ["abc", 60000],
+      ["Infinity", 60000],
+      ["1000", 1000],
+      [" 30000 ", 30000],
+      ["10", 1000],
+      ["-5", 1000],
+      ["3600000", 600000],
+    ] as const) {
+      process.env.EDITOR_AUTOSAVE_MS = raw;
+      assert.equal(appConfig().autosaveMs, expected, raw);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.EDITOR_AUTOSAVE_MS;
+    else process.env.EDITOR_AUTOSAVE_MS = previous;
+  }
+});
+
 test("turn reservations use estimated cost without raising the per-turn ceiling", async () => {
   const { turnReservation } = await import("../src/lib/server/config");
   assert.equal(turnReservation(0.03, 10), 0.03);

@@ -54,7 +54,7 @@
 
 ### D-1 편집
 - [ ] 탐색기: 생성·이름 변경·삭제·드래그 이동·업로드가 서버에 반영되고 새로고침 후 유지
-- [ ] Monaco: HTML/CSS/JS/TS/JSON/MD 하이라이트, 자동 저장(디바운스 1초), 저장 상태 표시
+- [ ] Monaco: HTML/CSS/JS/TS/JSON/MD 하이라이트, 자동 저장(첫 변경 후 60초 간격, 탭 전환 시 즉시, `EDITOR_AUTOSAVE_MS`로 1초~10분 조정), 저장 상태 표시
 - [ ] 이미지 뷰어: PNG/JPG/GIF/SVG/WebP 표시, 크기·용량 표시
 - [ ] 미리보기: `index.html` 기준 렌더, 파일 저장 시 자동 새로고침, 콘솔 오류 수집
 - [ ] 키보드: Ctrl/Cmd+S, Ctrl/Cmd+P(파일 열기), Ctrl/Cmd+B(탐색기 접기)

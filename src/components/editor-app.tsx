@@ -129,6 +129,8 @@ const formatProjectDate = (value?: string) =>
         })
         .replace(/\.\s(?=오[전후])/, " ")
     : "기록 없음";
+const intervalLabel = (ms: number) =>
+  ms % 60000 === 0 ? `${ms / 60000}분` : `${Math.round(ms / 1000)}초`;
 export function EditorApp({ config }: { config: AppConfig }) {
   const [user, setUser] = useState<SessionUser | null>(
       config.demo ? { id: "demo", role: "student" } : null,
@@ -210,6 +212,9 @@ export function EditorApp({ config }: { config: AppConfig }) {
     saveQueue = useRef<Promise<unknown>>(Promise.resolve()),
     abort = useRef<AbortController | null>(null),
     saveUpload = useRef<AbortController | null>(null),
+    autosaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+      undefined,
+    ),
     fileImport = useRef<AbortController | null>(null),
     fileInput = useRef<HTMLInputElement>(null),
     imageInput = useRef<HTMLInputElement>(null),
@@ -498,11 +503,26 @@ export function EditorApp({ config }: { config: AppConfig }) {
       localStorage.setItem("editor-chat", String(chatVisible));
     }
   }, [explorer, chatVisible, ready]);
+  // Save at most once per interval, counted from the first unsaved edit.
+  // Typing does not push the save back, so long sessions still save regularly.
   useEffect(() => {
-    if (!project || !dirty.current) return;
-    const timer = setTimeout(() => void flush().catch(() => {}), 1000);
-    return () => clearTimeout(timer);
-  }, [project, flush]);
+    if (!project || !dirty.current || autosaveTimer.current) return;
+    autosaveTimer.current = setTimeout(() => {
+      autosaveTimer.current = undefined;
+      if (dirty.current) void flush().catch(() => {});
+    }, config.autosaveMs);
+  }, [project, flush, config.autosaveMs]);
+  useEffect(() => () => clearTimeout(autosaveTimer.current), []);
+  useEffect(() => {
+    // Switching tabs, minimizing or locking a tablet saves right away.
+    const saveWhenHidden = () => {
+      if (document.visibilityState === "hidden" && dirty.current)
+        void flush().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", saveWhenHidden);
+    return () =>
+      document.removeEventListener("visibilitychange", saveWhenHidden);
+  }, [flush]);
   useEffect(() => {
     const beforeUnload = (e: BeforeUnloadEvent) => {
       if (dirty.current) {
@@ -1719,7 +1739,11 @@ export function EditorApp({ config }: { config: AppConfig }) {
         </button>
         {project && (
           <>
-            <span className={`save-state ${status}`} role="status">
+            <span
+              className={`save-state ${status}`}
+              role="status"
+              title={`변경 내용은 ${intervalLabel(config.autosaveMs)}마다 자동 저장됩니다. Ctrl+S(⌘+S)로 바로 저장할 수 있습니다.`}
+            >
               {status === "saving" ? (
                 <LoaderCircle size={13} className="spin" />
               ) : status === "saved" ? (

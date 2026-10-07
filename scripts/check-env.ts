@@ -33,6 +33,7 @@ for (const [name, keys] of Object.entries(groups))
 console.log(
   `개발 데모: ${config.demo}, 실제 AI: ${config.ai}, 이미지 생성: ${config.image}, 배포: ${config.deploy}`,
 );
+console.log(`자동 저장 간격: ${config.autosaveMs / 1000}초`);
 for (const key of [
   "EDITOR_AI_DAILY_LIMIT_USD",
   "EDITOR_AI_MONTHLY_LIMIT_USD",
