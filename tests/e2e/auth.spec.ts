@@ -62,7 +62,7 @@ test("password login stores the session and opens the authorized workspace", asy
   );
   await expect(page.getByLabel("비밀번호", { exact: true })).toHaveAttribute(
     "autocomplete",
-    "current-password",
+    "off",
   );
   await page.getByLabel("이메일", { exact: true }).fill(email);
   await page.getByLabel("비밀번호", { exact: true }).fill(password);
@@ -962,7 +962,20 @@ test("a game request automatically commits all files and opens the preview; fail
 
   await expect(
     page.getByRole("button", { name: "전체 작업 승인", exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "전체 작업 무시", exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    page
+      .locator(".message.assistant")
+      .last()
+      .locator(".proposal")
+      .getByRole("button", { name: "비교", exact: true }),
   ).toHaveCount(4);
+  await expect(
+    page.getByText("아래 승인은 위의 변경안 4개 전체에 적용됩니다."),
+  ).toBeVisible();
   expect(approvals).toBe(1);
   await expect
     .poll(() =>
@@ -978,7 +991,6 @@ test("a game request automatically commits all files and opens the preview; fail
   ).toBeVisible();
   await page
     .getByRole("button", { name: "전체 작업 승인", exact: true })
-    .first()
     .click();
   await expect(page.getByText("수정됨", { exact: true })).toHaveCount(8);
   expect(approvals).toBe(2);

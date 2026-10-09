@@ -1509,6 +1509,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
           {config.cloud ? (
             <>
               <form
+                autoComplete="off"
                 onSubmit={async (e) => {
                   e.preventDefault();
                   if (loginPending) return;
@@ -1566,7 +1567,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
                   id="email"
                   type="email"
                   name="email"
-                  autoComplete="username"
+                  autoComplete="off"
                   disabled={loginPending}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -1580,7 +1581,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
                       id="password"
                       name="password"
                       type="password"
-                      autoComplete="current-password"
+                      autoComplete="off"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       disabled={loginPending}
@@ -2495,133 +2496,167 @@ export function EditorApp({ config }: { config: AppConfig }) {
                       {[
                         ...(thread?.messages ?? []),
                         ...(pendingMessage ? [pendingMessage] : []),
-                      ].map((message) => (
-                        <article
-                          key={message.id}
-                          className={`message ${message.role}`}
-                        >
-                          <div className="message-heading">
-                            {message.role === "assistant" ? (
-                              <>
-                                <Bot size={15} /> LECO (레코)
-                              </>
-                            ) : (
-                              <>
-                                나{" "}
-                                <span>
-                                  {message.selection ? "선택 코드 첨부" : ""}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                          <Markdown
-                            content={
-                              message.role === "assistant"
-                                ? message.text
-                                    .replace(/```[\s\S]*?(?:```|$)/g, "")
-                                    .trim() ||
-                                  (message.status === "error"
-                                    ? "응답을 완성하지 못했습니다. 변경 내용은 반영되지 않았습니다. 다시 시도해주세요."
-                                    : message.proposals.length
-                                      ? "파일 변경 내용을 확인해주세요."
-                                      : "응답을 완성하지 못했습니다. 변경된 파일이 없습니다. 다시 시도해주세요.")
-                                : message.text
-                            }
-                            chat
-                          />
-                          {message.status === "error" && (
-                            <small>응답 생성 실패</small>
-                          )}
-                          {message.status === "partial" && (
-                            <small>
-                              {message.proposals.every(
-                                (p) => p.status === "applied",
-                              )
-                                ? "완성된 부분 반영됨"
-                                : "완성된 부분 보관됨"}
-                            </small>
-                          )}
-                          {message.status === "interrupted" && (
-                            <small>중단된 응답</small>
-                          )}
-                          {message.selection && (
-                            <details>
-                              <summary>첨부한 선택 코드</summary>
-                              <pre>{message.selection}</pre>
-                            </details>
-                          )}
-                          {message.proposals.map((proposal) => (
-                            <div className="proposal" key={proposal.id}>
-                              <div>
-                                <FileCode2 size={14} />
-                                <strong>{proposal.path}</strong>
-                                <span>
-                                  {
-                                    {
-                                      write: "수정",
-                                      create: "추가",
-                                      rename: "이름 변경",
-                                      delete: "삭제",
-                                    }[proposal.operation]
-                                  }
-                                  {proposal.status === "applied" && "됨"}
-                                </span>
-                              </div>
-                              {proposal.target && <p>→ {proposal.target}</p>}
-                              {proposal.status === "pending" && busy ? (
-                                <p>파일 변경을 처리하는 중...</p>
-                              ) : proposal.status === "pending" ? (
+                      ].map((message) => {
+                        const pendingProposals = message.proposals.filter(
+                          (p) => p.status === "pending",
+                        );
+                        const batchReview = message.proposals.some(
+                          (p) => p.requiresReview,
+                        );
+                        return (
+                          <article
+                            key={message.id}
+                            className={`message ${message.role}`}
+                          >
+                            <div className="message-heading">
+                              {message.role === "assistant" ? (
                                 <>
-                                  <p>승인하기 전에는 파일이 바뀌지 않습니다.</p>
-                                  <div className="proposal-actions">
-                                    {["create", "write"].includes(
-                                      proposal.operation,
-                                    ) &&
-                                      !proposal.file && (
-                                        <button
-                                          onClick={() => {
-                                            setDiff(proposal);
-                                            setPane("code");
-                                          }}
-                                        >
-                                          비교
-                                        </button>
+                                  <Bot size={15} /> LECO (레코)
+                                </>
+                              ) : (
+                                <>
+                                  나{" "}
+                                  <span>
+                                    {message.selection ? "선택 코드 첨부" : ""}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                            <Markdown
+                              content={
+                                message.role === "assistant"
+                                  ? message.text
+                                      .replace(/```[\s\S]*?(?:```|$)/g, "")
+                                      .trim() ||
+                                    (message.status === "error"
+                                      ? "응답을 완성하지 못했습니다. 변경 내용은 반영되지 않았습니다. 다시 시도해주세요."
+                                      : message.proposals.length
+                                        ? "파일 변경 내용을 확인해주세요."
+                                        : "응답을 완성하지 못했습니다. 변경된 파일이 없습니다. 다시 시도해주세요.")
+                                  : message.text
+                              }
+                              chat
+                            />
+                            {message.status === "error" && (
+                              <small>응답 생성 실패</small>
+                            )}
+                            {message.status === "partial" && (
+                              <small>
+                                {message.proposals.every(
+                                  (p) => p.status === "applied",
+                                )
+                                  ? "완성된 부분 반영됨"
+                                  : "완성된 부분 보관됨"}
+                              </small>
+                            )}
+                            {message.status === "interrupted" && (
+                              <small>중단된 응답</small>
+                            )}
+                            {message.selection && (
+                              <details>
+                                <summary>첨부한 선택 코드</summary>
+                                <pre>{message.selection}</pre>
+                              </details>
+                            )}
+                            {message.proposals.map((proposal) => (
+                              <div className="proposal" key={proposal.id}>
+                                <div>
+                                  <FileCode2 size={14} />
+                                  <strong>{proposal.path}</strong>
+                                  <span>
+                                    {
+                                      {
+                                        write: "수정",
+                                        create: "추가",
+                                        rename: "이름 변경",
+                                        delete: "삭제",
+                                      }[proposal.operation]
+                                    }
+                                    {proposal.status === "applied" && "됨"}
+                                  </span>
+                                </div>
+                                {proposal.target && <p>→ {proposal.target}</p>}
+                                {proposal.status === "pending" && busy ? (
+                                  <p>파일 변경을 처리하는 중...</p>
+                                ) : proposal.status === "pending" ? (
+                                  <>
+                                    <p>
+                                      승인하기 전에는 파일이 바뀌지 않습니다.
+                                    </p>
+                                    <div className="proposal-actions">
+                                      {["create", "write"].includes(
+                                        proposal.operation,
+                                      ) &&
+                                        !proposal.file && (
+                                          <button
+                                            onClick={() => {
+                                              setDiff(proposal);
+                                              setPane("code");
+                                            }}
+                                          >
+                                            비교
+                                          </button>
+                                        )}
+                                      {!batchReview && (
+                                        <>
+                                          <button
+                                            className="primary"
+                                            onClick={() =>
+                                              void review(proposal, true)
+                                            }
+                                          >
+                                            적용
+                                          </button>
+                                          <button
+                                            onClick={() =>
+                                              void review(proposal, false)
+                                            }
+                                          >
+                                            무시
+                                          </button>
+                                        </>
                                       )}
+                                    </div>
+                                  </>
+                                ) : proposal.status === "rejected" ? (
+                                  <p className="proposal-status">
+                                    <Check size={12} />
+                                    무시됨
+                                  </p>
+                                ) : null}
+                              </div>
+                            ))}
+                            {batchReview &&
+                              pendingProposals.length > 0 &&
+                              !busy && (
+                                <div className="proposal">
+                                  <p>
+                                    아래 승인은 위의 변경안{" "}
+                                    {pendingProposals.length}개 전체에
+                                    적용됩니다.
+                                  </p>
+                                  <div className="proposal-actions">
                                     <button
                                       className="primary"
                                       onClick={() =>
-                                        void review(proposal, true)
+                                        void review(pendingProposals[0], true)
                                       }
                                     >
-                                      {message.proposals.some(
-                                        (p) => p.requiresReview,
-                                      )
-                                        ? "전체 작업 승인"
-                                        : "적용"}
+                                      전체 작업 승인
                                     </button>
                                     <button
                                       onClick={() =>
-                                        void review(proposal, false)
+                                        void review(pendingProposals[0], false)
                                       }
                                     >
-                                      {message.proposals.some(
-                                        (p) => p.requiresReview,
-                                      )
-                                        ? "전체 작업 무시"
-                                        : "무시"}
+                                      전체 작업 무시
                                     </button>
                                   </div>
-                                </>
-                              ) : proposal.status === "rejected" ? (
-                                <p className="proposal-status">
-                                  <Check size={12} />
-                                  무시됨
-                                </p>
-                              ) : null}
-                            </div>
-                          ))}
-                        </article>
-                      ))}
+                                </div>
+                              )}
+                          </article>
+                        );
+                      })}
                       {busy && (
                         <article className="message assistant">
                           <div className="message-heading">
