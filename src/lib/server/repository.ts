@@ -87,6 +87,7 @@ export async function list(user: SessionUser): Promise<Project[]> {
     metadataRevision: row.metadata_revision,
     updatedAt: row.updated_at,
     loungeId: row.lounge_project_id ?? undefined,
+    supabase: row.snapshot?.supabase ?? undefined,
     storageBytes: (row.editor_files ?? []).reduce(
       (sum: number, file: { size_bytes: number }) =>
         sum + Number(file.size_bytes),
@@ -151,6 +152,7 @@ export async function get(user: SessionUser, id: string): Promise<Project> {
     metadataRevision: row.metadata_revision,
     updatedAt: row.updated_at,
     loungeId: row.lounge_project_id ?? undefined,
+    supabase: row.snapshot.supabase ?? undefined,
     files: result,
     threads: row.snapshot.threads ?? [],
     deployments: row.snapshot.deployments ?? [],

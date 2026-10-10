@@ -50,6 +50,7 @@ export type Deployment = {
     thumbnailPath?: string;
   };
 };
+import type { SupabaseLink } from "./supabase-link";
 export type Project = {
   id: string;
   title: string;
@@ -60,6 +61,7 @@ export type Project = {
   deletedAt?: string;
   storageBytes?: number;
   loungeId?: string;
+  supabase?: SupabaseLink;
   files: Record<string, ProjectFile>;
   threads: Thread[];
   deployments: Deployment[];
@@ -81,6 +83,7 @@ export type AppConfig = {
   ai: boolean;
   image: boolean;
   deploy: boolean;
+  supabaseLink: boolean;
   models: {
     id: string;
     label: string;

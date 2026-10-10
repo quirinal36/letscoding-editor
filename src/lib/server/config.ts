@@ -64,6 +64,9 @@ export function appConfig(): AppConfig {
       process.env.EDITOR_DEPLOY_ENABLED === "true" &&
       !!process.env.LOUNGE_INTERNAL_API_URL &&
       !!process.env.LOUNGE_INTERNAL_API_SECRET,
+    // Demo stores the link in the browser only; cloud needs the explicit flag and the lounge migration.
+    supabaseLink:
+      demo || (cloud && process.env.EDITOR_SUPABASE_LINK_ENABLED === "true"),
     models,
     autosaveMs: autosaveMs(),
   };
