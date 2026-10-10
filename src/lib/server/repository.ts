@@ -1,7 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { positive } from "./config";
 import type { Project, ProjectFile, SessionUser } from "../types";
-import { validateFiles } from "../vfs";
+import { validateFiles, assertStorageLimit, LIMITS } from "../vfs";
 export const uuid = z.string().uuid();
 export const fileSchema = z.object({
   kind: z.enum(["text", "binary", "directory"]),
@@ -24,6 +25,16 @@ export function admin() {
     key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Supabase 서버 저장 설정이 필요합니다.");
   return createClient(url, key, {
+    global: {
+      fetch: (input, init) =>
+        fetch(input, {
+          ...init,
+          signal: AbortSignal.any([
+            ...(init?.signal ? [init.signal] : []),
+            AbortSignal.timeout(20000),
+          ]),
+        }),
+    },
     db: { schema: "editor" },
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -60,7 +71,7 @@ export function activeUser(user: SessionUser) {
 export async function list(user: SessionUser): Promise<Project[]> {
   const { data, error } = await admin()
     .from("editor_projects")
-    .select("*")
+    .select("*,editor_files(size_bytes)")
     .eq("owner_id", user.id)
     .is("deleted_at", null)
     .order("updated_at", { ascending: false });
@@ -77,6 +88,11 @@ export async function list(user: SessionUser): Promise<Project[]> {
     updatedAt: row.updated_at,
     loungeId: row.lounge_project_id ?? undefined,
     supabase: row.snapshot?.supabase ?? undefined,
+    storageBytes: (row.editor_files ?? []).reduce(
+      (sum: number, file: { size_bytes: number }) =>
+        sum + Number(file.size_bytes),
+      0,
+    ),
     files: {},
     threads: [],
     deployments: [],
@@ -165,6 +181,29 @@ export async function prepareFiles(user: SessionUser, project: Project) {
   }
   return files;
 }
+export async function storageUsage(
+  user: SessionUser,
+  excludeProjectId?: string,
+) {
+  let usedBytes = 0;
+  for (let offset = 0; ; offset += 100) {
+    let query = admin()
+      .from("editor_projects")
+      .select("id,editor_files(size_bytes)")
+      .eq("owner_id", user.id)
+      .is("deleted_at", null)
+      .order("id")
+      .range(offset, offset + 99);
+    if (excludeProjectId) query = query.neq("id", excludeProjectId);
+    const { data, error } = await query;
+    if (error) throw new Error("개인 저장공간을 확인하지 못했습니다.");
+    for (const project of data ?? [])
+      for (const file of project.editor_files)
+        usedBytes += Number(file.size_bytes);
+    if (!data || data.length < 100) break;
+  }
+  return { usedBytes, limitBytes: LIMITS.account };
+}
 export async function save(
   user: SessionUser,
   project: Project,
@@ -173,6 +212,11 @@ export async function save(
   metadata = true,
 ): Promise<Project> {
   const db = admin();
+  if (advance && !project.deletedAt) {
+    // ponytail: preflight across projects; use an owner lock in the Lounge-owned RPC for strict concurrent quotas.
+    const usage = await storageUsage(user, project.id);
+    assertStorageLimit(usage.usedBytes + validateFiles(project.files).total);
+  }
   const files = await prepareFiles(user, project);
   const { data, error } = await db.rpc("editor_save_project", {
     p_owner: user.id,
@@ -244,4 +288,33 @@ export async function settle(
   });
   if (error)
     throw new Error("AI 사용량 정산이 필요합니다. 관리자에게 알려주세요.");
+}
+
+export async function aiUsage(user: SessionUser) {
+  const { data, error } = await admin()
+    .from("editor_ai_usage_daily")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("date", { ascending: false })
+    .limit(31);
+  if (error) throw new Error("사용량 테이블 준비가 필요합니다.");
+  const today = new Date().toLocaleDateString("en-CA", {
+      timeZone: "Asia/Seoul",
+    }),
+    row = data?.find((r) => r.date === today);
+  return {
+    costUsd: Number(row?.cost_usd ?? 0),
+    reservedUsd: Number(row?.reserved_usd ?? 0),
+    dailyLimitUsd: positive("EDITOR_AI_DAILY_LIMIT_USD"),
+    monthlyLimitUsd: positive("EDITOR_AI_MONTHLY_LIMIT_USD"),
+    promptTokens: row?.prompt_tokens ?? 0,
+    completionTokens: row?.completion_tokens ?? 0,
+    days: data,
+    monthCostUsd: (data ?? [])
+      .filter((r) => r.date.startsWith(today.slice(0, 7)))
+      .reduce((sum, r) => sum + Number(r.cost_usd), 0),
+    monthReservedUsd: (data ?? [])
+      .filter((r) => r.date.startsWith(today.slice(0, 7)))
+      .reduce((sum, r) => sum + Number(r.reserved_usd), 0),
+  };
 }

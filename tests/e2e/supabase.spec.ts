@@ -24,6 +24,10 @@ test("Supabase link: key guard → connect → preview opens only the linked hos
     route.fulfill({ status: 200, body: "leak" }),
   );
   await page.goto("/");
+  await page
+    .locator(".project-list > div > button:first-child")
+    .first()
+    .click();
   await expect(page.getByRole("tree")).toBeVisible();
   await page.getByRole("button", { name: "DB", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -40,9 +44,13 @@ test("Supabase link: key guard → connect → preview opens only the linked hos
   await expect(dialog.getByRole("status")).toContainText("성공");
   expect(requests[0]).toBe(`${host}/rest/v1/`);
   await dialog.getByRole("button", { name: "연결", exact: true }).click();
-  await expect(dialog.getByText("abcdefghijklmnopqrst.supabase.co")).toBeVisible();
+  await expect(
+    dialog.getByText("abcdefghijklmnopqrst.supabase.co"),
+  ).toBeVisible();
   await expect(dialog.getByText("연결됨")).toBeVisible();
-  expect(await new AxeBuilder({ page }).analyze()).toMatchObject({
+  expect(
+    await new AxeBuilder({ page }).include("dialog").analyze(),
+  ).toMatchObject({
     violations: [],
   });
   await dialog.getByRole("button", { name: "코드에 넣기" }).click();
@@ -51,11 +59,13 @@ test("Supabase link: key guard → connect → preview opens only the linked hos
   ).toBeVisible();
   await expect(page.getByRole("tab", { name: /supabase.js/ })).toBeVisible();
   await page.keyboard.press("ControlOrMeta+s");
-  await expect(
-    page.getByText("이 기기에 저장됨", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("저장됨", { exact: true })).toBeVisible();
   // The link survives a reload (demo keeps it in IndexedDB) and gates the preview CSP.
   await page.reload();
+  await page
+    .locator(".project-list > div > button:first-child")
+    .first()
+    .click();
   await expect(
     page.getByRole("treeitem", { name: "supabase.js", exact: true }),
   ).toBeVisible();

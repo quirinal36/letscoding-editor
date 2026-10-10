@@ -41,3 +41,4 @@ for (const key of [
 ])
   if (process.env[key] && !positive(key))
     console.log(`${key}: 양수 금액이 필요합니다.`);
+console.log(`자동 저장 간격: ${config.autosaveMs / 1000}초`);

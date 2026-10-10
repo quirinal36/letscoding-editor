@@ -1,9 +1,6 @@
 import type { Project } from "./types";
 import { textFile } from "./vfs";
-import {
-  SUPABASE_CLIENT_FILE,
-  supabasePlaceholderFile,
-} from "./supabase-link";
+import { SUPABASE_CLIENT_FILE, supabasePlaceholderFile } from "./supabase-link";
 export const TEMPLATES = [
   {
     id: "blank",
@@ -54,19 +51,32 @@ export function createProject(template = "game", title?: string): Project {
     template: info.id,
     revision: 0,
     updatedAt: new Date().toISOString(),
-    files:
-      info.id === "guestbook"
+    files: {
+      "PROJECT.md": textFile(
+        `# ${title ?? info.title}\n\n## 작품 목적\n${template === "game" ? "버튼을 눌러 점수를 올리는 클릭 게임입니다." : template === "profile" ? "나를 소개하는 페이지입니다." : template === "guestbook" ? "Supabase DB에 글을 저장하고 읽는 방명록입니다." : "아직 구현 전인 빈 프로젝트입니다."}\n\n## 파일 역할\n- index.html: 화면 구조\n- style.css: 디자인\n- script.js: 동작\n${info.id === "guestbook" ? "- supabase.js: 학생 Supabase DB 클라이언트\n" : ""}\n## 실행 방법\n미리보기에서 확인합니다.\n\n## 변경 기록\n- 프로젝트 생성\n`,
+        "text/markdown",
+      ),
+      ...(info.id === "guestbook"
         ? guestbook()
         : {
-            "index.html": textFile(html, "text/html"),
-            "style.css": textFile(css, "text/css"),
-            "script.js": textFile(js, "text/javascript"),
-          },
+            "index.html": textFile(
+              template === "blank"
+                ? '<!doctype html>\n<html lang="ko">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1">\n  <title>새 프로젝트</title>\n  <link rel="stylesheet" href="style.css">\n</head>\n<body>\n  <script src="script.js"></script>\n</body>\n</html>\n'
+                : html,
+              "text/html",
+            ),
+            "style.css": textFile(template === "blank" ? "" : css, "text/css"),
+            "script.js": textFile(
+              template === "blank" ? "" : js,
+              "text/javascript",
+            ),
+          }),
+    },
     threads: [
       {
         id: crypto.randomUUID(),
         title: "새 대화",
-        autoApply: false,
+        autoApply: true,
         messages: [],
       },
     ],

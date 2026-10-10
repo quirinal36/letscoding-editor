@@ -3,6 +3,14 @@ export function positive(name: string) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
+export const AUTOSAVE_DEFAULT_MS = 60_000;
+/** Autosave interval: 60 seconds unless EDITOR_AUTOSAVE_MS sets 1 second to 10 minutes. */
+export function autosaveMs() {
+  const raw = process.env.EDITOR_AUTOSAVE_MS?.trim();
+  const value = Number(raw);
+  if (!raw || !Number.isFinite(value)) return AUTOSAVE_DEFAULT_MS;
+  return Math.min(Math.max(Math.round(value), 1000), 600_000);
+}
 export function appConfig(): AppConfig {
   const cloud = !!(
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -60,6 +68,7 @@ export function appConfig(): AppConfig {
     supabaseLink:
       demo || (cloud && process.env.EDITOR_SUPABASE_LINK_ENABLED === "true"),
     models,
+    autosaveMs: autosaveMs(),
   };
 }
 

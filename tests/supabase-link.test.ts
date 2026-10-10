@@ -12,12 +12,25 @@ import { previewCsp } from "../src/lib/preview";
 import { validateArtifact } from "../src/lib/artifact";
 import { createProject } from "../src/lib/templates";
 import { textFile } from "../src/lib/vfs";
+import { systemPrompt } from "../src/lib/server/ai";
 
 const jwt = (role: string) =>
   `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${Buffer.from(
     JSON.stringify({ iss: "supabase", ref: "abcdefghijklmnopqrst", role }),
   ).toString("base64url")}.c2lnbmF0dXJlLXNpZ25hdHVyZS1zaWduYXR1cmU`;
 const url = "https://abcdefghijklmnopqrst.supabase.co";
+
+test("guestbook keeps project memory and linked AI context after merging main", () => {
+  const project = createProject("guestbook");
+  assert.match(project.files["PROJECT.md"].content, /Supabase/);
+  assert.match(project.files["PROJECT.md"].content, /supabase\.js/);
+  project.supabase = normalizeLink({ url, anonKey: jwt("anon") });
+  const prompt = systemPrompt(project);
+  assert.match(prompt, /LECO/);
+  assert.match(prompt, /PROJECT\.md/);
+  assert.match(prompt, /abcdefghijklmnopqrst\.supabase\.co/);
+  assert.ok(!prompt.includes(project.supabase.anonKey));
+});
 
 test("only https *.supabase.co origins are accepted as project URLs", () => {
   assert.equal(parseSupabaseUrl(` ${url}/ `), url);

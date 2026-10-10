@@ -75,7 +75,7 @@ export function buildPreview(
   for (const el of doc.querySelectorAll("[src],[href],[poster]"))
     for (const attr of ["src", "href", "poster"]) {
       const ref = el.getAttribute(attr);
-      if (!ref) continue;
+      if (!ref || (attr === "href" && el.tagName === "A")) continue;
       const path = resolvePath("index.html", ref);
       if (path && files[path]) el.setAttribute(attr, asset(path));
     }
@@ -95,7 +95,7 @@ export function buildPreview(
   for (const [path, f] of Object.entries(files))
     if (f.kind !== "directory") resources[path] = asset(path);
   const bridge = doc.createElement("script");
-  bridge.textContent = `(()=>{const channel=${JSON.stringify(channel)},resources=${JSON.stringify(resources)};const emit=(level,text,line=0,path='index.html')=>parent.postMessage({channel,level,text:String(text).slice(0,3000),line,path},'*');for(const level of ['log','warn','error']){const original=console[level];console[level]=(...args)=>{emit(level,args.map(a=>{try{return typeof a==='string'?a:JSON.stringify(a)}catch{return String(a)}}).join(' '));original.apply(console,args)}}addEventListener('error',e=>emit('error',e.message,e.lineno,Object.keys(resources).find(k=>resources[k]===e.filename)||'index.html'));addEventListener('unhandledrejection',e=>emit('error',String(e.reason)));const originalFetch=fetch;window.fetch=(input,options)=>{const url=typeof input==='string'?input:input.url;const key=(url.startsWith('./')?url.slice(2):url).split(/[?#]/)[0];return originalFetch(resources[key]||input,options)};})();`;
+  bridge.textContent = `(()=>{const channel=${JSON.stringify(channel)},resources=${JSON.stringify(resources)};const emit=(level,text,line=0,path='index.html')=>parent.postMessage({channel,level,text:String(text).slice(0,3000),line,path},'*');for(const level of ['log','warn','error']){const original=console[level];console[level]=(...args)=>{emit(level,args.map(a=>{try{return typeof a==='string'?a:JSON.stringify(a)}catch{return String(a)}}).join(' '));original.apply(console,args)}}addEventListener('error',e=>emit('error',e.message,e.lineno,Object.keys(resources).find(k=>resources[k]===e.filename)||'index.html'));addEventListener('unhandledrejection',e=>emit('error',String(e.reason)));document.addEventListener('click',e=>{const link=e.target.closest?.('a[href]');if(!link)return;const href=link.getAttribute('href').trim();if(href.startsWith('#')||['','.','/','./','index.html','./index.html','/index.html'].includes(href.split(/[?#]/)[0])){e.preventDefault();const hash=href.includes('#')?href.slice(href.indexOf('#')+1):'';let id=hash;try{id=decodeURIComponent(hash)}catch{}const target=id?document.getElementById(id):null;if(target)target.scrollIntoView();else if(!id)window.scrollTo(0,0)}},true);const originalFetch=fetch;window.fetch=(input,options)=>{const url=typeof input==='string'?input:input.url;const key=(url.startsWith('./')?url.slice(2):url).split(/[?#]/)[0];return originalFetch(resources[key]||input,options)};})();`;
   doc.head.insertBefore(bridge, csp.nextSibling);
   return {
     html: "<!doctype html>\n" + doc.documentElement.outerHTML,

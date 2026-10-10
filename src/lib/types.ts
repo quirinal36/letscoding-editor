@@ -12,6 +12,7 @@ export type Proposal = {
   target?: string;
   content?: string;
   file?: ProjectFile;
+  requiresReview?: boolean;
   baseRevision: number;
   status: "pending" | "applied" | "rejected";
 };
@@ -21,7 +22,7 @@ export type ChatMessage = {
   text: string;
   proposals: Proposal[];
   tools?: { name: string; input: unknown; output: unknown }[];
-  status: "complete" | "interrupted" | "error";
+  status: "complete" | "partial" | "interrupted" | "error";
   images?: string[];
   selection?: string;
 };
@@ -58,6 +59,7 @@ export type Project = {
   metadataRevision?: number;
   updatedAt: string;
   deletedAt?: string;
+  storageBytes?: number;
   loungeId?: string;
   supabase?: SupabaseLink;
   files: Record<string, ProjectFile>;
@@ -71,6 +73,7 @@ export type Usage = {
   dailyLimitUsd: number;
   monthlyLimitUsd: number;
   monthCostUsd?: number;
+  monthReservedUsd?: number;
   promptTokens: number;
   completionTokens: number;
 };
@@ -89,4 +92,6 @@ export type AppConfig = {
     inputPrice?: number;
     outputPrice?: number;
   }[];
+  /** Milliseconds between automatic saves while there are unsaved edits. */
+  autosaveMs: number;
 };

@@ -13,15 +13,30 @@ export function Dialog({
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const element = ref.current;
+    const previousFocus = document.activeElement;
     element?.showModal();
-    return () => element?.close();
+    return () => {
+      element?.close();
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected)
+        previousFocus.focus();
+    };
   }, []);
   return (
     <dialog
       ref={ref}
-      onCancel={onClose}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      onPointerDown={(event) => {
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (
+          event.clientX < bounds.left ||
+          event.clientX > bounds.right ||
+          event.clientY < bounds.top ||
+          event.clientY > bounds.bottom
+        )
+          onClose();
       }}
       className="dialog"
       aria-label={title}
