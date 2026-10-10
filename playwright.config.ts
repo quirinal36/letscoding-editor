@@ -3,7 +3,7 @@ const authTest = process.env.EDITOR_AUTH_TEST === "true";
 export default defineConfig({
   outputDir: authTest ? "test-results/auth" : "test-results/demo",
   testDir: "./tests/e2e",
-  testMatch: authTest ? "auth.spec.ts" : undefined,
+  testMatch: authTest ? ["auth.spec.ts", "supabase-race.spec.ts"] : undefined,
   testIgnore: authTest ? [] : ["**/auth.spec.ts"],
   fullyParallel: false,
   workers: 1,
@@ -32,6 +32,7 @@ export default defineConfig({
             SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
             OPENROUTER_API_KEY: "test-only-no-billing",
             OPENROUTER_MODEL_CODE: "test/model",
+            EDITOR_SUPABASE_LINK_ENABLED: "true",
             EDITOR_AI_DAILY_LIMIT_USD: "1",
             EDITOR_AI_MONTHLY_LIMIT_USD: "1",
             EDITOR_AI_MAX_TURN_USD: "1",

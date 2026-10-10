@@ -257,10 +257,14 @@ export function EditorApp({ config }: { config: AppConfig }) {
     const snapshot = current.current;
     if (!snapshot) return;
     if (dirty.current) await flush();
+    if (current.current?.id !== snapshot.id)
+      throw new Error("작품이 바뀌어 DB 연결 작업을 중단했습니다.");
     if (config.demo) {
       // Demo keeps the public link in IndexedDB; the browser performs the reachability test.
       if (link) await testSupabaseLink(link);
-      const next = { ...current.current!, supabase: link ?? undefined };
+      if (current.current?.id !== snapshot.id)
+        throw new Error("작품이 바뀌어 DB 연결 작업을 중단했습니다.");
+      const next = { ...current.current, supabase: link ?? undefined };
       if (!link) delete next.supabase;
       assign(next);
       await flush(false);
@@ -272,8 +276,12 @@ export function EditorApp({ config }: { config: AppConfig }) {
         link,
       })
     ).json();
+    if (current.current?.id !== snapshot.id)
+      throw new Error(
+        "작품이 바뀌어 DB 연결 결과를 화면에 반영하지 않았습니다.",
+      );
     const next = {
-      ...current.current!,
+      ...current.current,
       supabase: saved.supabase,
       metadataRevision: saved.metadataRevision,
     };
