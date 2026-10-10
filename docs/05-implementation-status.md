@@ -61,7 +61,7 @@
 | EX-10 | AI 변경 표시 | `editor-app.tsx`, `vfs.ts`, `client.ts` | 로컬 파일 흐름; 서버 업로드 연결 대기 |
 | ED-01 | Monaco 코드 편집 | `code-editor.tsx`, `editor-app.tsx` | Monaco·편집/복원; 성능 인수 별도 |
 | ED-02 | 여러 파일 탭 | `code-editor.tsx`, `editor-app.tsx` | Monaco·편집/복원; 성능 인수 별도 |
-| ED-03 | 자동 저장 | `code-editor.tsx`, `editor-app.tsx` | Monaco·편집/복원; 성능 인수 별도 |
+| ED-03 | 자동 저장 | `code-editor.tsx`, `editor-app.tsx`, `config.ts` | 첫 변경 후 60초 간격(입력 중에도 연기하지 않음)·탭 숨김 시 즉시·Ctrl/⌘+S; `EDITOR_AUTOSAVE_MS` 1초~10분, E2E는 1초 |
 | ED-04 | 이미지 뷰어 | `code-editor.tsx`, `editor-app.tsx` | PNG/JPG/GIF/WebP 이미지 및 SVG 코드+미리보기; 5MB PC 성능 별도 |
 | ED-05 | 마크다운 미리보기 | `code-editor.tsx`, `editor-app.tsx` | Monaco·편집/복원; 성능 인수 별도 |
 | ED-06 | 자동완성·오류 표시 | `code-editor.tsx`, `editor-app.tsx` | Monaco·편집/복원; 성능 인수 별도 |

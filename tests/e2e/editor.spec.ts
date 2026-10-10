@@ -1,5 +1,34 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+test("manual save resets the autosave deadline without postponing later edits", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .locator(".project-list > div > button:first-child")
+    .first()
+    .click();
+  const title = page.getByRole("textbox", { name: "프로젝트 이름 편집" });
+  const status = page.locator(".save-state");
+  await expect(title).toBeVisible();
+  await page.clock.install();
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
+  await title.fill("첫 수정");
+  await expect(status).toHaveClass(/dirty/);
+  await page.clock.runFor(700);
+  await page.keyboard.press("Control+s");
+  await expect(status).toHaveClass(/saved/);
+  await title.fill("저장 후 새 수정");
+  await expect(status).toHaveClass(/dirty/);
+  await page.clock.runFor(300);
+  await expect(status).toHaveClass(/dirty/);
+  await title.fill("계속 수정");
+  await page.clock.runFor(699);
+  await expect(status).toHaveClass(/dirty/);
+  await page.clock.runFor(1);
+  await expect(status).toHaveClass(/saved/);
+});
+
 test("header title edits update the explorer and persist without navigation", async ({
   page,
 }) => {
