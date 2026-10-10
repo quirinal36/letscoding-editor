@@ -300,6 +300,8 @@ export function EditorApp({ config }: { config: AppConfig }) {
           persistedRevision.current = saved.revision;
           persistedProject.current = saved;
           if (current.current === snapshot) {
+            clearTimeout(autosaveTimer.current);
+            autosaveTimer.current = undefined;
             current.current = saved;
             setProject(saved);
             dirty.current = false;
