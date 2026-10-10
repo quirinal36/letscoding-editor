@@ -429,7 +429,10 @@ test("project home → blank creation → workspace → return, clone and delete
   await page.getByLabel("프로젝트 이름", { exact: true }).fill("검증 프로젝트");
   await page.getByLabel("프로젝트 이름", { exact: true }).press("Enter");
   await expect(page.getByRole("tree")).toBeVisible();
-  await expect(page.getByRole("tablist").getByRole("tab")).toHaveCount(1);
+  await expect(page.getByRole("tablist").getByRole("tab")).toHaveCount(2);
+  await expect(
+    page.getByRole("tab", { name: "DB 테이블", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("tab", { name: "미리보기", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
@@ -888,4 +891,58 @@ test("lounge prompt picker fills the draft without sending and dismisses accessi
   await expect(
     page.locator("header").getByRole("button", { name: "라운지에 게시하기" }),
   ).toBeVisible();
+});
+
+test("explorer keeps descendants together beside similarly named files", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .locator(".project-list > div > button:first-child")
+    .first()
+    .click();
+  for (const path of [
+    "supabase.js",
+    "supabase/migrations.sql",
+    "supabase/migrations/001.sql",
+  ]) {
+    await page.getByRole("button", { name: "새 파일", exact: true }).click();
+    await page.getByLabel("파일 경로", { exact: true }).fill(path);
+    await page.getByRole("button", { name: "확인", exact: true }).click();
+  }
+  const folder = page.getByRole("treeitem", { name: "supabase", exact: true });
+  await folder.getByRole("button", { name: "supabase", exact: true }).click();
+  const nested = page.getByRole("treeitem", {
+    name: "supabase/migrations",
+    exact: true,
+  });
+  await nested.getByRole("button", { name: "migrations", exact: true }).click();
+  const paths = page.getByRole("treeitem");
+  const expected = [
+    "supabase",
+    "supabase/migrations",
+    "supabase/migrations/001.sql",
+    "supabase/migrations.sql",
+    "supabase.js",
+  ];
+  const readPaths = () =>
+    paths.evaluateAll((rows) =>
+      rows
+        .map((row) => row.getAttribute("aria-label"))
+        .filter((path) => path?.startsWith("supabase")),
+    );
+  await expect.poll(readPaths).toEqual(expected);
+  await expect(nested).toHaveAttribute("aria-level", "2");
+  await expect(
+    page.getByRole("treeitem", {
+      name: "supabase/migrations/001.sql",
+      exact: true,
+    }),
+  ).toHaveAttribute("aria-level", "3");
+  await folder.getByRole("button", { name: "supabase", exact: true }).click();
+  await expect.poll(readPaths).toEqual(["supabase", "supabase.js"]);
+  await page
+    .getByRole("searchbox", { name: "탐색기 파일 검색" })
+    .fill("supabase");
+  await expect.poll(readPaths).toEqual(expected);
 });

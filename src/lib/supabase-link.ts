@@ -1,6 +1,10 @@
 // Student-owned Supabase project link. URL and anon key are public browser values;
-// service_role/secret keys are rejected everywhere and never stored.
-export type SupabaseLink = { url: string; anonKey: string; connectedAt: string };
+// service_role/secret keys are rejected in public project links and generated code.
+export type SupabaseLink = {
+  url: string;
+  anonKey: string;
+  connectedAt: string;
+};
 export type SupabaseKeyKind = "anon" | "service_role" | "secret" | "unknown";
 export const SUPABASE_JS_CDN =
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
@@ -76,17 +80,17 @@ export function normalizeLink(
     );
   return { url, anonKey, connectedAt: now.toISOString() };
 }
-/** Reachability check with the anon key only; runs in the browser (demo) or on the server (cloud). */
+/** Validate the public key without reading table data; table privileges/RLS are separate. */
 export async function testSupabaseLink(
   link: Pick<SupabaseLink, "url" | "anonKey">,
   fetcher: typeof fetch = fetch,
 ) {
   let response: Response;
   try {
-    response = await fetcher(`${link.url}/rest/v1/`, {
+    // The REST root exposes OpenAPI and no longer accepts public keys.
+    response = await fetcher(`${link.url}/auth/v1/settings`, {
       headers: {
         apikey: link.anonKey,
-        Authorization: `Bearer ${link.anonKey}`,
         Accept: "application/json",
       },
       signal: AbortSignal.timeout(10000),
@@ -99,7 +103,7 @@ export async function testSupabaseLink(
   }
   if (response.status === 401 || response.status === 403)
     throw new Error(
-      "anon key가 거부되었습니다. 같은 프로젝트의 키인지 확인해주세요.",
+      "anon(publishable) key가 거부되었습니다. 같은 프로젝트의 활성 키인지 확인해주세요.",
     );
   if (!response.ok)
     throw new Error(
@@ -142,7 +146,9 @@ export const supabase = null;
 /** Deploy guard: a service_role JWT or sb_secret_ key inside student files blocks the ZIP. */
 export function containsSecretKey(content: string) {
   if (/\bsb_secret_[A-Za-z0-9_-]{8,}/.test(content)) return true;
-  for (const match of content.matchAll(/eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}/g))
+  for (const match of content.matchAll(
+    /eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}/g,
+  ))
     if (jwtRole(match[0]) === "service_role") return true;
   return false;
 }
@@ -154,7 +160,11 @@ create table if not exists public.guestbook (
   created_at timestamptz not null default now()
 );
 alter table public.guestbook enable row level security;
+grant select, insert on table public.guestbook to anon;
+grant usage on sequence public.guestbook_id_seq to anon;
 -- 누구나 읽을 수 있고, 글쓰기만 허용합니다. 수정·삭제는 대시보드에서만 합니다.
+drop policy if exists "guestbook read" on public.guestbook;
 create policy "guestbook read" on public.guestbook for select to anon using (true);
+drop policy if exists "guestbook write" on public.guestbook;
 create policy "guestbook write" on public.guestbook for insert to anon with check (true);
 `;

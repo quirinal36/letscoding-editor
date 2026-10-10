@@ -910,7 +910,7 @@ test("a game request automatically commits all files and opens the preview; fail
     preview.getByRole("heading", { name: "최신 스네이크 게임" }),
   ).toBeVisible();
   await expect(preview.locator("#score")).toHaveText("0");
-  await expect(page.getByRole("tab")).toHaveCount(1);
+  await expect(page.getByRole("tab")).toHaveCount(2);
   failed = true;
   await page.getByLabel("AI에게 보낼 메시지").fill("실패 응답 검증");
   await page.getByRole("button", { name: "메시지 보내기" }).click();
@@ -1313,4 +1313,110 @@ test("Lounge ZIP prompt downloads verified bytes and blocks failed or stale vali
     "검증 완료 4",
   );
   expect(downloads).toBe(1);
+});
+
+test("administrator DB connection keeps secrets out of project files and reads through the server", async ({
+  page,
+}) => {
+  const { createProject } = await import("../../src/lib/templates");
+  const project = createProject("blank", "관리자 DB 검증");
+  project.supabase = {
+    url: "https://student-test.supabase.co",
+    anonKey: "sb_publishable_test_abcdefghijklmnop",
+    connectedAt: new Date().toISOString(),
+  };
+  const secret = "sb_secret_test_only_abcdefghijklmnop";
+  let connected = false;
+  let reads = 0;
+  await page.route(
+    "https://editor-auth.test/auth/v1/token?grant_type=password",
+    (route) => route.fulfill({ json: session() }),
+  );
+  await page.route("https://student-test.supabase.co/**", () => {
+    throw new Error("Administrator requests must only leave the server");
+  });
+  await page.route("**/api/editor", async (route) => {
+    const body = route.request().postDataJSON();
+    if (body.action.startsWith("supabase-admin-")) {
+      expect(body.projectId).toBe(project.id);
+      if (body.action === "supabase-admin-connect") {
+        expect(body.key).toBe(secret);
+        connected = true;
+      } else expect(body).not.toHaveProperty("key");
+      if (body.action === "supabase-admin-unlink") connected = false;
+      if (body.action === "supabase-admin-read") {
+        expect(body.table).toBe("private_notes");
+        reads++;
+        return route.fulfill({
+          json: { rows: [{ id: 1, note: "관리자 조회 성공" }] },
+        });
+      }
+      return route.fulfill({
+        json: {
+          enabled: true,
+          connected,
+          tables: connected ? ["private_notes"] : [],
+        },
+      });
+    }
+    expect(route.request().postData()).not.toContain(secret);
+    return route.fulfill({
+      json:
+        body.action === "session"
+          ? { id: userId, email, role: "student" }
+          : body.action === "list"
+            ? [project]
+            : body.action === "usage"
+              ? usage
+              : body.action === "storage"
+                ? { usedBytes: 0, limitBytes: 1000000 }
+                : project,
+    });
+  });
+  await page.goto("/");
+  await page.getByLabel("이메일", { exact: true }).fill(email);
+  await page.getByLabel("비밀번호", { exact: true }).fill(password);
+  await page.getByLabel("비밀번호", { exact: true }).press("Enter");
+  await page
+    .locator(".project-list > div > button:first-child")
+    .first()
+    .click();
+  await page
+    .getByRole("button", { name: "DB 테이블 조회", exact: true })
+    .click();
+  const dialog = page.getByRole("tabpanel", { name: "DB 테이블" });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const sidebar = page.getByRole("region", { name: "DB 탐색기", exact: true });
+  const input = sidebar.getByLabel("관리자 키 (service_role / secret)");
+  await expect(input).toHaveAttribute("type", "password");
+  await input.fill(secret);
+  await sidebar
+    .getByRole("button", { name: "관리자 연결", exact: true })
+    .click();
+  await expect(input).toHaveCount(0);
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  await sidebar
+    .getByRole("button", { name: "private_notes", exact: true })
+    .click();
+  await expect(
+    sidebar.getByRole("button", { name: "private_notes", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    dialog.getByRole("cell", { name: "관리자 조회 성공" }),
+  ).toBeVisible();
+  expect(reads).toBe(1);
+  await page.getByRole("tab", { name: "미리보기", exact: true }).click();
+  await page
+    .getByRole("button", { name: "DB 테이블 조회", exact: true })
+    .click();
+  await expect(
+    sidebar.getByRole("button", { name: "관리자 연결 해제" }),
+  ).toBeVisible();
+  await expect(dialog.getByRole("table")).toHaveCount(0);
+  await sidebar.getByRole("button", { name: "관리자 연결 해제" }).click();
+  await expect(input).toHaveValue("");
+  expect(JSON.stringify(project)).not.toContain(secret);
+  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(
+    secret,
+  );
 });

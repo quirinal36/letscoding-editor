@@ -176,7 +176,9 @@ export function SupabasePanel({
                 void run(async () => {
                   const candidate = normalizeLink({ url, anonKey });
                   await testSupabaseLink(candidate);
-                  setNotice("연결 테스트에 성공했습니다. 연결을 눌러 저장하세요.");
+                  setNotice(
+                    "연결 테스트에 성공했습니다. 연결을 눌러 저장하세요. 테이블 읽기·쓰기 권한은 테이블 설정에서 별도로 허용해야 합니다.",
+                  );
                 })
               }
             >

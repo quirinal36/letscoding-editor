@@ -23,6 +23,7 @@ const groups = {
     "GITHUB_COOKIE_KEY",
   ],
   "학생 DB 연결": ["EDITOR_SUPABASE_LINK_ENABLED"],
+  "관리자 DB 연결": ["EDITOR_SUPABASE_ADMIN_KEY"],
   "오류 수집": ["NEXT_PUBLIC_SENTRY_DSN", "SENTRY_DSN"],
   "정리 작업": ["CRON_SECRET"],
 };

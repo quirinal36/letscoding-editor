@@ -1604,3 +1604,55 @@ pre {
   align-items: center;
   gap: 10px;
 }
+
+.database-pane {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 20px;
+}
+.db-table-scroll {
+  overflow: auto;
+  max-height: 55vh;
+}
+.db-table-scroll table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+.db-table-scroll th,
+.db-table-scroll td {
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+  max-width: 360px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.database-sidebar {
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.database-sidebar input {
+  min-width: 0;
+  width: 100%;
+}
+.database-sidebar nav {
+  display: grid;
+  gap: 3px;
+}
+.database-table-item {
+  text-align: left;
+  overflow-wrap: anywhere;
+  padding: 8px;
+}
+.database-table-item[aria-pressed="true"] {
+  background: var(--elevated);
+  color: var(--accent);
+}
+.database-results .db-table-scroll {
+  max-height: none;
+}

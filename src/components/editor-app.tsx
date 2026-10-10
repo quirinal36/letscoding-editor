@@ -19,6 +19,7 @@ import {
   Code2,
   Copy,
   Download,
+  Database,
   FileCode2,
   FilePlus2,
   Folder,
@@ -49,6 +50,7 @@ import {
   Palette,
 } from "lucide-react";
 import { GitHubPanel } from "./github-panel";
+import { SupabaseTables } from "./supabase-tables";
 import { SupabasePanel } from "./supabase-panel";
 import {
   SUPABASE_CLIENT_FILE,
@@ -156,7 +158,9 @@ export function EditorApp({ config }: { config: AppConfig }) {
     [chatVisible, setChatVisible] = useState(true),
     [tabs, setTabs] = useState<string[]>(["index.html", "style.css"]),
     [active, setActive] = useState("index.html"),
-    [requestedPane, setPane] = useState<"code" | "preview">("code"),
+    [requestedPane, setPane] = useState<"code" | "preview" | "database">(
+      "code",
+    ),
     [requestedSplit, setSplit] = useState(false),
     [cursor, setCursor] = useState({ line: 1, column: 1 });
   const [status, setStatus] = useState<"saved" | "saving" | "dirty" | "error">(
@@ -210,9 +214,13 @@ export function EditorApp({ config }: { config: AppConfig }) {
     isListed: true,
     thumbnailPath: "",
   });
+  const [databaseSidebar, setDatabaseSidebar] = useState<HTMLDivElement | null>(
+    null,
+  );
   const noFileTabs = !tabs.some((path) => project?.files[path]);
-  const pane = noFileTabs && !diff ? "preview" : requestedPane;
-  const split = !noFileTabs && requestedSplit;
+  const pane =
+    noFileTabs && !diff && requestedPane === "code" ? "preview" : requestedPane;
+  const split = pane !== "database" && !noFileTabs && requestedSplit;
   const current = useRef<Project | null>(null),
     persistedProject = useRef<Project | null>(null),
     persistedRevision = useRef(0),
@@ -1523,7 +1531,16 @@ export function EditorApp({ config }: { config: AppConfig }) {
     }
     // ponytail: at most 500 paths; index ancestors if the file limit grows.
     return [...paths]
-      .sort((a, b) => a.localeCompare(b))
+      .sort((a, b) => {
+        const left = a.split("/"),
+          right = b.split("/");
+        // Compare siblings, keeping each parent's descendants together.
+        for (let i = 0; i < Math.min(left.length, right.length); i++) {
+          const order = left[i].localeCompare(right[i]);
+          if (order) return order;
+        }
+        return left.length - right.length;
+      })
       .filter((path) =>
         query
           ? path.toLowerCase().includes(query) ||
@@ -1972,8 +1989,13 @@ export function EditorApp({ config }: { config: AppConfig }) {
           <aside className="activity-bar" aria-label="작업 공간 도구">
             <button
               aria-label="탐색기 접기/펼치기"
-              className={explorer ? "active" : ""}
-              onClick={() => setExplorer((v) => !v)}
+              className={explorer && pane !== "database" ? "active" : ""}
+              onClick={() => {
+                if (pane === "database") {
+                  setPane("code");
+                  setExplorer(true);
+                } else setExplorer((v) => !v);
+              }}
             >
               <FolderOpen size={22} />
             </button>
@@ -1992,10 +2014,23 @@ export function EditorApp({ config }: { config: AppConfig }) {
             >
               <Github size={22} />
             </button>
+            {config.supabaseLink && (
+              <button
+                aria-label="DB 테이블 조회"
+                title="DB 테이블 조회"
+                className={pane === "database" ? "active" : ""}
+                onClick={() => {
+                  setPane("database");
+                  setDiff(null);
+                }}
+              >
+                <Database size={22} />
+              </button>
+            )}
             <div className="grow" />
           </aside>
           <Group orientation="horizontal" className="panels" id="workbench">
-            {explorer && (
+            {(explorer || pane === "database") && (
               <>
                 <Panel
                   id="explorer"
@@ -2003,226 +2038,243 @@ export function EditorApp({ config }: { config: AppConfig }) {
                   minSize="160px"
                   maxSize="40%"
                 >
-                  <section className="explorer-pane" aria-label="파일 탐색기">
-                    <div className="pane-heading">
-                      <span>탐색기</span>
-                      <button
-                        aria-label="탐색기 접기"
-                        title="탐색기 숨기기"
-                        onClick={() => setExplorer(false)}
-                      >
-                        <PanelLeftClose size={15} />
-                      </button>
-                    </div>
-                    <div className="tree-heading">
-                      <button
-                        className="tree-root"
+                  {pane === "database" ? (
+                    <section className="explorer-pane" aria-label="DB 탐색기">
+                      <div className="pane-heading">
+                        <span>테이블</span>
+                      </div>
+                      <div
+                        className="database-sidebar"
+                        ref={setDatabaseSidebar}
+                      />
+                    </section>
+                  ) : (
+                    <section className="explorer-pane" aria-label="파일 탐색기">
+                      <div className="pane-heading">
+                        <span>탐색기</span>
+                        <button
+                          aria-label="탐색기 접기"
+                          title="탐색기 숨기기"
+                          onClick={() => setExplorer(false)}
+                        >
+                          <PanelLeftClose size={15} />
+                        </button>
+                      </div>
+                      <div className="tree-heading">
+                        <button
+                          className="tree-root"
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            move(dragPath.current, "");
+                          }}
+                        >
+                          <ChevronDown size={14} />
+                          <span>{project?.title ?? "프로젝트"}</span>
+                        </button>
+                        <div className="tree-actions">
+                          <button
+                            aria-label="새 파일"
+                            title="새 파일 만들기"
+                            onClick={() => showModal("new-file")}
+                          >
+                            <FilePlus2 size={15} />
+                          </button>
+                          <button
+                            aria-label="새 폴더"
+                            title="새 폴더 만들기"
+                            onClick={() => showModal("new-folder")}
+                          >
+                            <FolderPlus size={15} />
+                          </button>
+                          <button
+                            aria-label="파일 업로드"
+                            title="내 컴퓨터에서 파일 가져오기"
+                            disabled={!!uploadProgress || !!storageProgress}
+                            onClick={() => fileInput.current?.click()}
+                          >
+                            <Upload size={15} />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="file-filter">
+                        <input
+                          type="search"
+                          aria-label="탐색기 파일 검색"
+                          placeholder="파일 이름 검색"
+                          value={fileFilter}
+                          onChange={(e) => setFileFilter(e.target.value)}
+                        />
+                      </div>
+                      <div
+                        className="file-tree"
+                        role="tree"
+                        aria-label="프로젝트 파일"
                         onDragOver={(e) => e.preventDefault()}
                         onDrop={(e) => {
-                          e.preventDefault();
-                          move(dragPath.current, "");
+                          if (e.dataTransfer.files.length) {
+                            e.preventDefault();
+                            void upload(e.dataTransfer.files);
+                          }
                         }}
                       >
-                        <ChevronDown size={14} />
-                        <span>{project?.title ?? "프로젝트"}</span>
-                      </button>
-                      <div className="tree-actions">
+                        {rows.map((path) => {
+                          const folder =
+                            project?.files[path]?.kind === "directory" ||
+                            !project?.files[path];
+                          return (
+                            <div
+                              className="tree-entry"
+                              role="treeitem"
+                              aria-label={path}
+                              aria-level={path.split("/").length}
+                              aria-selected={selected === path}
+                              aria-expanded={
+                                folder
+                                  ? !!fileFilter.trim() || expanded.has(path)
+                                  : undefined
+                              }
+                              key={path}
+                              style={{
+                                paddingLeft:
+                                  15 + (path.split("/").length - 1) * 16,
+                              }}
+                            >
+                              <button
+                                className={`tree-file ${active === path ? "selected" : ""}`}
+                                onClick={() => {
+                                  setSelected(path);
+                                  if (folder)
+                                    setExpanded((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(path)) next.delete(path);
+                                      else next.add(path);
+                                      return next;
+                                    });
+                                  else openFile(path);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "F2") {
+                                    e.preventDefault();
+                                    showModal("rename", path);
+                                  }
+                                  if (e.key === "Delete") {
+                                    e.preventDefault();
+                                    showModal("delete", path);
+                                  }
+                                }}
+                                draggable
+                                onDragStart={() => {
+                                  dragPath.current = path;
+                                }}
+                                onDragOver={(e) => {
+                                  if (folder) e.preventDefault();
+                                }}
+                                onDrop={(e) => {
+                                  if (folder && !e.dataTransfer.files.length) {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    move(dragPath.current, path);
+                                  }
+                                }}
+                              >
+                                {folder ? (
+                                  fileFilter.trim() || expanded.has(path) ? (
+                                    <svg
+                                      width="10"
+                                      height="10"
+                                      viewBox="0 0 10 10"
+                                      aria-hidden="true"
+                                    >
+                                      <path
+                                        d="M1 3h8L5 7z"
+                                        fill="currentColor"
+                                      />
+                                    </svg>
+                                  ) : (
+                                    <ChevronRight size={12} />
+                                  )
+                                ) : null}
+                                {folder ? (
+                                  <Folder size={15} className="folder-icon" />
+                                ) : (
+                                  <FileCode2
+                                    size={15}
+                                    className={`file-icon ${language(path)}`}
+                                  />
+                                )}
+                                <span>{path.split("/").at(-1)}</span>
+                                {changed.has(path) && (
+                                  <span className="ai-dot" title="AI 변경" />
+                                )}
+                              </button>
+                              <button
+                                className="tree-menu"
+                                aria-label={`${path} 이름 변경`}
+                                title="이름 변경"
+                                onClick={() => showModal("rename", path)}
+                              >
+                                <Pencil size={12} />
+                              </button>
+                              <button
+                                className="tree-menu"
+                                aria-label={`${path} 삭제`}
+                                title="삭제"
+                                onClick={() => showModal("delete", path)}
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="explorer-footer">
                         <button
-                          aria-label="새 파일"
-                          title="새 파일 만들기"
-                          onClick={() => showModal("new-file")}
-                        >
-                          <FilePlus2 size={15} />
-                        </button>
-                        <button
-                          aria-label="새 폴더"
-                          title="새 폴더 만들기"
-                          onClick={() => showModal("new-folder")}
-                        >
-                          <FolderPlus size={15} />
-                        </button>
-                        <button
-                          aria-label="파일 업로드"
-                          title="내 컴퓨터에서 파일 가져오기"
                           disabled={!!uploadProgress || !!storageProgress}
                           onClick={() => fileInput.current?.click()}
                         >
-                          <Upload size={15} />
+                          <Upload size={14} />
+                          {uploadProgress ||
+                            storageProgress ||
+                            "파일 또는 ZIP 가져오기"}
                         </button>
-                      </div>
-                    </div>
-                    <div className="file-filter">
-                      <input
-                        type="search"
-                        aria-label="탐색기 파일 검색"
-                        placeholder="파일 이름 검색"
-                        value={fileFilter}
-                        onChange={(e) => setFileFilter(e.target.value)}
-                      />
-                    </div>
-                    <div
-                      className="file-tree"
-                      role="tree"
-                      aria-label="프로젝트 파일"
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        if (e.dataTransfer.files.length) {
-                          e.preventDefault();
-                          void upload(e.dataTransfer.files);
-                        }
-                      }}
-                    >
-                      {rows.map((path) => {
-                        const folder =
-                          project?.files[path]?.kind === "directory" ||
-                          !project?.files[path];
-                        return (
-                          <div
-                            className="tree-entry"
-                            role="treeitem"
-                            aria-label={path}
-                            aria-level={path.split("/").length}
-                            aria-selected={selected === path}
-                            aria-expanded={
-                              folder
-                                ? !!fileFilter.trim() || expanded.has(path)
-                                : undefined
+                        {(uploadProgress || storageProgress) && (
+                          <button
+                            onClick={() =>
+                              (
+                                fileImport.current ?? saveUpload.current
+                              )?.abort()
                             }
-                            key={path}
-                            style={{
-                              paddingLeft:
-                                15 + (path.split("/").length - 1) * 16,
-                            }}
                           >
-                            <button
-                              className={`tree-file ${active === path ? "selected" : ""}`}
-                              onClick={() => {
-                                setSelected(path);
-                                if (folder)
-                                  setExpanded((prev) => {
-                                    const next = new Set(prev);
-                                    if (next.has(path)) next.delete(path);
-                                    else next.add(path);
-                                    return next;
-                                  });
-                                else openFile(path);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "F2") {
-                                  e.preventDefault();
-                                  showModal("rename", path);
-                                }
-                                if (e.key === "Delete") {
-                                  e.preventDefault();
-                                  showModal("delete", path);
-                                }
-                              }}
-                              draggable
-                              onDragStart={() => {
-                                dragPath.current = path;
-                              }}
-                              onDragOver={(e) => {
-                                if (folder) e.preventDefault();
-                              }}
-                              onDrop={(e) => {
-                                if (folder && !e.dataTransfer.files.length) {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  move(dragPath.current, path);
-                                }
-                              }}
-                            >
-                              {folder ? (
-                                fileFilter.trim() || expanded.has(path) ? (
-                                  <svg
-                                    width="10"
-                                    height="10"
-                                    viewBox="0 0 10 10"
-                                    aria-hidden="true"
-                                  >
-                                    <path d="M1 3h8L5 7z" fill="currentColor" />
-                                  </svg>
-                                ) : (
-                                  <ChevronRight size={12} />
-                                )
-                              ) : null}
-                              {folder ? (
-                                <Folder size={15} className="folder-icon" />
-                              ) : (
-                                <FileCode2
-                                  size={15}
-                                  className={`file-icon ${language(path)}`}
-                                />
-                              )}
-                              <span>{path.split("/").at(-1)}</span>
-                              {changed.has(path) && (
-                                <span className="ai-dot" title="AI 변경" />
-                              )}
-                            </button>
-                            <button
-                              className="tree-menu"
-                              aria-label={`${path} 이름 변경`}
-                              title="이름 변경"
-                              onClick={() => showModal("rename", path)}
-                            >
-                              <Pencil size={12} />
-                            </button>
-                            <button
-                              className="tree-menu"
-                              aria-label={`${path} 삭제`}
-                              title="삭제"
-                              onClick={() => showModal("delete", path)}
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="explorer-footer">
-                      <button
-                        disabled={!!uploadProgress || !!storageProgress}
-                        onClick={() => fileInput.current?.click()}
-                      >
-                        <Upload size={14} />
-                        {uploadProgress ||
-                          storageProgress ||
-                          "파일 또는 ZIP 가져오기"}
-                      </button>
-                      {(uploadProgress || storageProgress) && (
-                        <button
-                          onClick={() =>
-                            (fileImport.current ?? saveUpload.current)?.abort()
-                          }
+                            업로드 취소
+                          </button>
+                        )}
+                        <div
+                          className={`capacity ${stats.total > LIMITS.total * 0.9 ? "warning" : ""}`}
                         >
-                          업로드 취소
-                        </button>
-                      )}
-                      <div
-                        className={`capacity ${stats.total > LIMITS.total * 0.9 ? "warning" : ""}`}
-                      >
-                        <span>{stats.count}/500 파일</span>
-                        <span>
-                          {formatBytes(stats.total)} /{" "}
-                          {formatBytes(LIMITS.total)}
-                        </span>
+                          <span>{stats.count}/500 파일</span>
+                          <span>
+                            {formatBytes(stats.total)} /{" "}
+                            {formatBytes(LIMITS.total)}
+                          </span>
+                        </div>
+                        <div className="capacity-track">
+                          <span
+                            style={{
+                              width: `${Math.min(100, (stats.total / LIMITS.total) * 100)}%`,
+                            }}
+                          />
+                        </div>
+                        <a
+                          href="https://github.com/yudanah/letscoding_lounge/blob/main/docs/14-vercel-operations-and-student-framework-guide.md"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          라운지 파일 규칙
+                        </a>
                       </div>
-                      <div className="capacity-track">
-                        <span
-                          style={{
-                            width: `${Math.min(100, (stats.total / LIMITS.total) * 100)}%`,
-                          }}
-                        />
-                      </div>
-                      <a
-                        href="https://github.com/yudanah/letscoding_lounge/blob/main/docs/14-vercel-operations-and-student-framework-guide.md"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        라운지 파일 규칙
-                      </a>
-                    </div>
-                  </section>
+                    </section>
+                  )}
                 </Panel>
                 <Separator
                   className="resize-handle"
@@ -2301,8 +2353,24 @@ export function EditorApp({ config }: { config: AppConfig }) {
                   >
                     <Play size={13} /> 미리보기
                   </button>
+                  {config.supabaseLink && (
+                    <button
+                      role="tab"
+                      id="database-tab"
+                      aria-controls="database-panel"
+                      aria-selected={pane === "database"}
+                      className={`preview-tab ${pane === "database" ? "active" : ""}`}
+                      onClick={() => {
+                        setPane("database");
+                        setDiff(null);
+                      }}
+                    >
+                      <Database size={13} /> DB 테이블
+                    </button>
+                  )}
                   <div className="grow" />
                   <button
+                    disabled={pane === "database"}
                     className="icon-button"
                     aria-hidden="true"
                     tabIndex={-1}
@@ -2316,7 +2384,11 @@ export function EditorApp({ config }: { config: AppConfig }) {
                   <span>{project?.title}</span>
                   <ChevronRight size={12} />
                   <span>
-                    {pane === "preview" ? "미리보기" : active || "파일 선택"}
+                    {pane === "database"
+                      ? "DB 테이블"
+                      : pane === "preview"
+                        ? "미리보기"
+                        : active || "파일 선택"}
                   </span>
                   <div className="grow" />
                   {pane === "code" && activeFile?.kind === "text" && (
@@ -2326,6 +2398,24 @@ export function EditorApp({ config }: { config: AppConfig }) {
                   )}
                 </div>
                 <div className={`editor-content ${split ? "split" : ""}`}>
+                  {pane === "database" && config.supabaseLink && project && (
+                    <div
+                      id="database-panel"
+                      role="tabpanel"
+                      aria-labelledby="database-tab"
+                      className="database-pane"
+                      tabIndex={0}
+                    >
+                      <SupabaseTables
+                        key={`${project.id}:${project.supabase?.url}:${project.supabase?.connectedAt}`}
+                        link={project.supabase ?? null}
+                        projectId={project.id}
+                        demo={config.demo}
+                        sidebar={databaseSidebar}
+                        onConnect={() => setModal("supabase")}
+                      />
+                    </div>
+                  )}
                   {(pane === "preview" || split) && project && (
                     <Preview
                       key={project.id}

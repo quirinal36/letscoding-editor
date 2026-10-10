@@ -7,12 +7,14 @@ import {
   parseSupabaseUrl,
   supabaseClientFile,
   testSupabaseLink,
+  GUESTBOOK_SQL,
 } from "../src/lib/supabase-link";
 import { previewCsp } from "../src/lib/preview";
 import { validateArtifact } from "../src/lib/artifact";
 import { createProject } from "../src/lib/templates";
 import { textFile } from "../src/lib/vfs";
 import { systemPrompt } from "../src/lib/server/ai";
+import { PGlite } from "@electric-sql/pglite";
 
 const jwt = (role: string) =>
   `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${Buffer.from(
@@ -103,9 +105,11 @@ test("reachability test reports unreachable, rejected and failing projects", asy
       return new Response("{}", { status });
     };
   await testSupabaseLink(link, respond(200));
-  assert.equal(calls[0].url, `${url}/rest/v1/`);
+  assert.equal(calls[0].url, `${url}/auth/v1/settings`);
   assert.equal(calls[0].headers.get("apikey"), jwt("anon"));
+  assert.equal(calls[0].headers.get("Authorization"), null);
   await assert.rejects(testSupabaseLink(link, respond(401)), /거부/);
+  await assert.rejects(testSupabaseLink(link, respond(403)), /거부/);
   await assert.rejects(testSupabaseLink(link, respond(500)), /500/);
   await assert.rejects(
     testSupabaseLink(link, async () => {
@@ -113,6 +117,44 @@ test("reachability test reports unreachable, rejected and failing projects", asy
     }),
     /연결할 수 없습니다/,
   );
+});
+
+test("public keys validate even when Supabase restricts the OpenAPI root", async () => {
+  for (const anonKey of [jwt("anon"), "sb_publishable_abcdefghijklmnop"]) {
+    await testSupabaseLink({ url, anonKey }, async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url === `${url}/rest/v1/`)
+        return Response.json({ message: "Invalid API key" }, { status: 401 });
+      assert.equal(request.url, `${url}/auth/v1/settings`);
+      assert.equal(request.headers.get("apikey"), anonKey);
+      assert.equal(request.headers.get("authorization"), null);
+      return Response.json({ external: { email: true } });
+    });
+  }
+});
+
+test("guestbook SQL grants public read/write without automatic grants and can be rerun", async () => {
+  const db = new PGlite();
+  try {
+    await db.exec("create role anon; grant usage on schema public to anon;");
+    await db.exec(GUESTBOOK_SQL);
+    await db.exec(GUESTBOOK_SQL);
+    await db.exec("set role anon;");
+    const inserted = await db.query<{ id: number }>(
+      "insert into public.guestbook(name,message) values ('test','hello') returning id",
+    );
+    assert.equal(inserted.rows.length, 1);
+    assert.equal(
+      (await db.query("select * from public.guestbook")).rows.length,
+      1,
+    );
+    await assert.rejects(
+      db.query("update public.guestbook set message='changed'"),
+    );
+    await assert.rejects(db.query("delete from public.guestbook"));
+  } finally {
+    await db.close();
+  }
 });
 
 test("deploy rejects files that embed a service_role or secret key", () => {

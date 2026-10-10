@@ -28,6 +28,7 @@ import {
 } from "@/lib/vfs";
 import { createProject } from "@/lib/templates";
 import { normalizeLink, testSupabaseLink } from "@/lib/supabase-link";
+import { adminDbAction, removeAdminDb } from "@/lib/server/supabase-admin";
 import type { Project } from "@/lib/types";
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -73,6 +74,10 @@ export async function POST(request: Request) {
         "launch",
         "unlink",
         "image",
+        "supabase-admin-status",
+        "supabase-admin-connect",
+        "supabase-admin-unlink",
+        "supabase-admin-read",
         "supabase-link",
         "supabase-unlink",
       ])
@@ -91,6 +96,10 @@ export async function POST(request: Request) {
       ...body,
       projectId: body.projectId ?? body.project?.id,
     });
+    if (action.startsWith("supabase-admin-"))
+      return Response.json(await adminDbAction(user, body), {
+        headers: { "Cache-Control": "no-store" },
+      });
     if (action === "session") return Response.json(user);
     if (action === "list") return Response.json(await list(user));
     if (action === "get")
@@ -149,6 +158,7 @@ export async function POST(request: Request) {
       const project = await get(user, uuid.parse(body.projectId));
       if (z.string().parse(body.title) !== project.title)
         throw new Error("프로젝트 이름을 정확하게 입력해주세요.");
+      await removeAdminDb(user.id, project.id);
       project.deletedAt = new Date().toISOString();
       await save(user, project, project.revision);
       return Response.json({ ok: true });
@@ -284,8 +294,12 @@ export async function POST(request: Request) {
             .parse(body.link),
         );
         await testSupabaseLink(link);
+        await removeAdminDb(user.id, project.id);
         project.supabase = link;
-      } else delete project.supabase;
+      } else {
+        await removeAdminDb(user.id, project.id);
+        delete project.supabase;
+      }
       // The link is project metadata, like threads; file revision is untouched.
       return Response.json(await save(user, project, project.revision, false));
     }

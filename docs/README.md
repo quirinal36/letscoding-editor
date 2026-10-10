@@ -23,3 +23,5 @@
    - GitHub App 설정, 가져오기·커밋·최신 내용 가져오기, 계정 격리·충돌 처리와 남은 실제 인수
 12. [학생 Supabase 데이터베이스 연결 계획](./09-supabase-integration-plan.md)
    - 마일스톤 M6·에픽 E-11·이슈 9개 등록 결과, 설계 요약, 열린 결정
+13. [라운지 개발팀 전달 문서 — Supabase DB 연결](./10-lounge-supabase-handoff.md)
+   - 공유 DB migration, Play CSP, 배포 설정 자동 연결 제안과 적용·인수 기준
