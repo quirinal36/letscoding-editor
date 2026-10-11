@@ -257,8 +257,11 @@ export async function cloudBytes(project: Project) {
     }
   return files;
 }
-export async function reserve(user: SessionUser, amount: number) {
-  const id = crypto.randomUUID();
+export async function reserve(
+  user: SessionUser,
+  amount: number,
+  id: string = crypto.randomUUID(),
+) {
   const { error } = await admin().rpc("editor_reserve_usage", {
     p_owner: user.id,
     p_id: id,

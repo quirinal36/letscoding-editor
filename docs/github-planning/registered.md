@@ -95,3 +95,29 @@
 ## 운영 검증 후 재동기화
 
 위 초기 집계는 [최신 상태 기록](./status-sync-2026-10-04.md)으로 대체한다. 라운지 #215를 종료했고 에디터 #59 학생 GitHub 실제 인수를 추가했다. 에디터 59개(종료8/열림51), 라운지 연동5개(종료1/열림4)다. 본문의 완료 범위와 남은 작업을 분리하고 에픽 체크리스트·마일스톤 설명을 갱신했다.
+
+## AI 모델 선택과 교사 프롬프트 조회 추가 등록 2026-10-11
+
+[상세 계획](ai-models-learning-logs.md)에 따라 마일스톤 2개, 에픽 3개, 하위 이슈 10개를 추가했다. 에디터는 에픽 2개·하위 이슈 6개, 라운지는 에픽 1개·하위 이슈 4개다. 모든 새 이슈는 구현 전 열린 상태이며 담당자·마감일은 미지정이다. 180일 보존과 초기 9개 모델은 제안으로 유지한다.
+
+| 준비 키 | 실제 GitHub | 제목 |
+| --- | --- | --- |
+| M7 | [quirinal36/letscoding-editor milestone/8](https://github.com/quirinal36/letscoding-editor/milestone/8) | M7 — AI 모델 선택·프롬프트 학습 기록 |
+| LOUNGE-M7 | [yudanah/letscoding_lounge milestone/7](https://github.com/yudanah/letscoding_lounge/milestone/7) | Editor M7 — AI 학습 기록·담당 교사 조회 |
+| E-12 | [quirinal36/letscoding-editor #73](https://github.com/quirinal36/letscoding-editor/issues/73) | [EPIC] E-12 — 최신 AI 모델 선택·호환성·예산 통제 |
+| E-13 | [quirinal36/letscoding-editor #74](https://github.com/quirinal36/letscoding-editor/issues/74) | [EPIC] E-13 — 프롬프트 요청 기록·학생 안내·통합 인수 |
+| E-14 | [yudanah/letscoding_lounge #219](https://github.com/yudanah/letscoding_lounge/issues/219) | [EPIC] E-14 — 라운지 AI 학습 기록 DB·담당 교사 조회 |
+| I-053 | [quirinal36/letscoding-editor #75](https://github.com/quirinal36/letscoding-editor/issues/75) | I-053 — 6개 제조사 모델 카탈로그·최신 후보·ZDR 호환성 검증 |
+| I-054 | [quirinal36/letscoding-editor #76](https://github.com/quirinal36/letscoding-editor/issues/76) | I-054 — 사용자별 AI 모델 선택 드롭다운 |
+| I-055 | [quirinal36/letscoding-editor #77](https://github.com/quirinal36/letscoding-editor/issues/77) | I-055 — 선택 모델 서버 검증·도구 호환·예산 정산 |
+| L-005 | [yudanah/letscoding_lounge #220](https://github.com/yudanah/letscoding_lounge/issues/220) | L-005 — AI 학습 기록 보존·삭제·열람 안내 정책 확정 |
+| L-006 | [yudanah/letscoding_lounge #221](https://github.com/yudanah/letscoding_lounge/issues/221) | L-006 — AI 요청 기록 공유 DB·권한·보존 정리 계약 |
+| I-056 | [quirinal36/letscoding-editor #78](https://github.com/quirinal36/letscoding-editor/issues/78) | I-056 — 프롬프트 서버 기록·요청 상태·재시도 연결 |
+| I-057 | [quirinal36/letscoding-editor #79](https://github.com/quirinal36/letscoding-editor/issues/79) | I-057 — 프롬프트 기록 안내·비밀값 마스킹·삭제 UX |
+| L-007 | [yudanah/letscoding_lounge #222](https://github.com/yudanah/letscoding_lounge/issues/222) | L-007 — 담당 학생 AI 기록 조회 API·기관 격리 |
+| L-008 | [yudanah/letscoding_lounge #223](https://github.com/yudanah/letscoding_lounge/issues/223) | L-008 — 라운지 관리자 AI 학습 기록 목록·상세 화면 |
+| I-058 | [quirinal36/letscoding-editor #80](https://github.com/quirinal36/letscoding-editor/issues/80) | I-058 — 모델 선택·교사 학습 기록 통합 인수·운영 전환 |
+
+등록 검증: 새 마일스톤 2개의 제목·열림 상태·마감일 미지정, 새 이슈 13건의 제목·본문·라벨·마일스톤·열림 상태·담당자 미지정·상호 링크를 GitHub에서 재조회해 대조했다. 기존 에디터 #44·#57에는 범위 구분 링크만 추가하고 상태는 유지했다.
+
+문서 변경 검증: 준비 키·건수·로컬 링크·섹션 앵커와 `git diff --check`를 확인했다. 기존 `npm run check` 41개·빌드·E2E 데모 15개/Auth 15개가 통과했다(E2E는 로컬 포트 실행 권한 확보 후 재실행). 이는 기존 기능의 회귀 검사이며 새 기능 구현·모델 실호출 인수는 I-058에서 수행한다. 기능 코드·DB·운영 설정은 변경하지 않았고 커밋·푸시는 수행하지 않았다.

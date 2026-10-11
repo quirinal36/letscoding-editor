@@ -22,6 +22,10 @@ export default defineConfig({
     timeout: 120000,
     env: {
       EDITOR_E2E: "true",
+      OPENROUTER_MODELS: "",
+      EDITOR_AI_LOGGING_ENABLED: authTest ? "true" : "false",
+      EDITOR_AI_LOG_RETENTION_DAYS: "7",
+      EDITOR_AI_LOG_POLICY_VERSION: "e2e-only",
       // Production waits 60 seconds; tests keep the old 1-second rhythm.
       EDITOR_AUTOSAVE_MS: "1000",
       EDITOR_DEMO_MODE: authTest ? "false" : "true",

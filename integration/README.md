@@ -23,3 +23,7 @@ migration 적용 뒤 Supabase Data API의 **Exposed schemas**에 `editor`를 기
 반영 전 승인·staging 통합 검증은 [사람 검토 문서](../docs/04-human-review.md)를 따른다. 에디터의 signature/replay/권한 테스트는 fake 서비스로 통과했다. 라운지 코어 patch는 현재 대상 저장소의 `git apply --check`를 통과했다. 실제 적용·대상 앱 컴파일은 하지 않은 검토본이다.
 
 `editor_lounge_uploads`는 ZIP SHA와 idempotency key, 소유권, 기한, 원자적 pending→processing, 완료 receipt를 보존한다. 처리 결과가 불확실하면 `needs_review`로 유지하여 중복 작품·재배포를 자동 실행하지 않는다. 만료 pending·오래된 nonce 정리와 thumbnail 실패 후 orphan 정리는 라운지 운영 cron에 연결해 staging에서 점검한다. 썸네일 실패가 ZIP 배포 이후 발생할 수 있으므로 lease 로그와 실제 Storage 상태를 대사한 뒤 재시도한다.
+
+## AI 학습 요청 기록 (M7)
+
+`ai-learning-requests.sql`은 라운지의 `20261011152448_editor_ai_learning_requests.sql`과 같은 **미적용 검토본**이다. 공유 DB migration 원본·적용은 라운지 저장소가 소유한다. [에픽 #73·#74 인수 문서](../docs/11-ai-models-learning-logs-handoff.md)의 정책 승인, 적용 순서, 서버 전용 권한, 정리/복구 절차를 확인한다. 기존 메시지를 역으로 가져오지 않는다.

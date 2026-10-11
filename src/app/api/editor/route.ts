@@ -1,3 +1,5 @@
+import { beginRequest, type RequestLog } from "@/lib/server/learning-logs";
+import { loungeIntent } from "@/lib/lounge-prompts";
 import * as Sentry from "@sentry/nextjs";
 import { logAction } from "@/lib/observability";
 import { z } from "zod";
@@ -33,6 +35,7 @@ import type { Project } from "@/lib/types";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 export async function POST(request: Request) {
+  let requestLog: RequestLog | undefined;
   let telemetry:
     | { userId: string; action: string; projectId?: string; threadId?: string }
     | undefined;
@@ -322,7 +325,24 @@ export async function POST(request: Request) {
     }
     if (action === "chat") {
       const input = chatInput.parse(body);
-      return await chat(user, await get(user, input.projectId), input, request);
+      const project = await get(user, input.projectId);
+      if (!project.threads.some((t) => t.id === input.threadId))
+        throw new Error("대화를 찾을 수 없습니다.");
+      const lounge = loungeIntent(input.text);
+      requestLog = await beginRequest(user, project, {
+        ...input,
+        kind:
+          lounge.artifact && !lounge.ranking && !lounge.displayName
+            ? "local"
+            : "chat",
+        context: [
+          input.activeFile,
+          input.selection,
+          input.images,
+          input.previewErrors,
+        ],
+      });
+      return await chat(user, project, input, request, requestLog);
     }
     if (action === "approve" || action === "reject") {
       const project = await get(user, uuid.parse(body.projectId));
@@ -429,8 +449,21 @@ export async function POST(request: Request) {
     }
     if (action === "image") {
       const input = z
-        .object({ projectId: uuid, prompt: z.string().trim().min(1).max(3000) })
+        .object({
+          projectId: uuid,
+          requestId: uuid.optional(),
+          retryOf: uuid.optional(),
+          prompt: z.string().trim().min(1).max(3000),
+        })
         .parse(body);
+      const project = await get(user, input.projectId);
+      requestLog = await beginRequest(user, project, {
+        ...input,
+        text: input.prompt,
+        model: appConfig().models.find((m) => m.image)?.id ?? "",
+        kind: "image",
+        context: null,
+      });
       if (!appConfig().image || !positive("EDITOR_AI_IMAGE_OUTPUT_RESERVE_USD"))
         throw new Error("이미지 모델과 출력 예산 검증 후 활성화해주세요.");
       const maxTurn = positive("EDITOR_AI_MAX_TURN_USD");
@@ -440,8 +473,20 @@ export async function POST(request: Request) {
         positive("EDITOR_AI_IMAGE_OUTPUT_RESERVE_USD"),
         maxTurn,
       );
-      const project = await get(user, input.projectId),
-        reservation = await reserve(user, reservedUsd);
+      const reservation = await reserve(user, reservedUsd, input.requestId);
+      try {
+        await requestLog.update({
+          status: "running",
+          reservation_id: reservation,
+          cost_usd: reservedUsd,
+          cost_kind: "reserved",
+        });
+      } catch (error) {
+        await settle(user, reservation, 0, 0, 0);
+        throw error;
+      }
+      let imageCostKnown = false;
+      let imageStatus: "error" | "save_failed" | "complete" = "error";
       let cost = reservedUsd,
         promptTokens = 0,
         completionTokens = 0;
@@ -453,18 +498,56 @@ export async function POST(request: Request) {
           request.signal,
         );
         cost = result.cost;
+        imageCostKnown = result.costKnown;
+        if (result.actualModel)
+          await requestLog.update({ actual_model: result.actualModel });
         promptTokens = result.promptTokens;
         completionTokens = result.completionTokens;
+        imageStatus = "save_failed";
         const latest = await get(user, project.id);
         latest.files[result.path] = result.file;
         await save(user, latest, latest.revision);
+        imageStatus = "complete";
         return Response.json(await get(user, project.id));
       } finally {
-        await settle(user, reservation, cost, promptTokens, completionTokens);
+        try {
+          await settle(user, reservation, cost, promptTokens, completionTokens);
+          await requestLog.finish(
+            request.signal.aborted ? "interrupted" : imageStatus,
+            {
+              cost_usd: cost,
+              cost_kind: imageCostKnown ? "known" : "reserved",
+              prompt_tokens: promptTokens,
+              completion_tokens: completionTokens,
+            },
+          );
+        } catch {
+          await requestLog.finish("settlement_failed");
+          requestLog = undefined;
+          throw new Error(
+            "사용량·학습 기록 정산 실패. 관리자 확인이 필요합니다.",
+          );
+        }
+        requestLog = undefined;
       }
     }
     throw new Error("지원하지 않는 요청입니다.");
   } catch (error) {
+    if (requestLog) {
+      const message = error instanceof Error ? error.message : "";
+      try {
+        await requestLog.finish(
+          request.signal.aborted
+            ? "interrupted"
+            : /예산|한도|지원|모델|활성화/.test(message)
+              ? "rejected"
+              : "error",
+          { reason: /예산|한도/.test(message) ? "budget" : "request_failed" },
+        );
+      } catch {
+        /* Durable received/running records are recovered as unknown by maintenance. */
+      }
+    }
     if (process.env.SENTRY_DSN && telemetry) {
       const context = telemetry;
       Sentry.withScope((scope) => {

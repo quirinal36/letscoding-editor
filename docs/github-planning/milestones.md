@@ -2,6 +2,8 @@
 
 > 기준: [준비 문서](README.md), 계획 §7 · 일정은 착수 후 상대 주차
 
+> 추가 마일스톤(2026-10-11): [M7 — AI 모델 선택·프롬프트 학습 기록](ai-models-learning-logs.md#m7), [Editor M7 — AI 학습 기록·담당 교사 조회](ai-models-learning-logs.md#lounge-m7). 에디터·라운지에 각각 등록하며 세부 완료 기준과 의존성은 해당 계획을 따른다. 날짜·담당자 미지정. M6는 [Supabase 연결 계획](../09-supabase-integration-plan.md)을 참조한다.
+
 ## M0 — 준비·정책·기술 검증
 
 - 기간: 1주차 / 1주

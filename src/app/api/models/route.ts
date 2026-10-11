@@ -1,32 +1,35 @@
 import { appConfig } from "@/lib/server/config";
+import { modelMetadata, zdrModels } from "@/lib/server/models";
 export async function GET() {
-  const models = appConfig().models;
-  if (!models.length) return Response.json([]);
+  const configured = appConfig().models.filter((m) => !m.image);
+  let data: Awaited<ReturnType<typeof zdrModels>> = [];
   try {
-    const response = await fetch("https://openrouter.ai/api/v1/models", {
-      next: { revalidate: 3600 },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!response.ok) throw new Error("metadata");
-    const result = await response.json();
-    return Response.json(
-      models.map((model) => {
-        const metadata = result.data?.find(
-            (m: { id: string }) => m.id === model.id,
-          ),
-          input = Number(metadata?.pricing?.prompt),
-          output = Number(metadata?.pricing?.completion);
+    if (configured.length) data = await zdrModels();
+  } catch {
+    /* Fail closed per model. */
+  }
+  return Response.json(
+    configured.map((model) => {
+      try {
+        const info = modelMetadata(data.find((m) => m.id === model.id));
         return {
           ...model,
-          inputPrice: Number.isFinite(input) ? input * 1e6 : null,
-          outputPrice: Number.isFinite(output) ? output * 1e6 : null,
+          label: info.label,
+          vision: model.vision && info.vision,
+          available: true,
+          inputPrice: info.input * 1e6,
+          outputPrice: info.output * 1e6,
         };
-      }),
-      { headers: { "Cache-Control": "private, max-age=3600" } },
-    );
-  } catch {
-    return Response.json(
-      models.map((m) => ({ ...m, inputPrice: null, outputPrice: null })),
-    );
-  }
+      } catch {
+        return {
+          ...model,
+          available: false,
+          reason: "ZDR·도구·가격 확인 불가",
+          inputPrice: null,
+          outputPrice: null,
+        };
+      }
+    }),
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
