@@ -23,7 +23,9 @@ export async function api(
     body: JSON.stringify({ action, ...payload }),
     signal: AbortSignal.any([
       ...(signal ? [signal] : []),
-      AbortSignal.timeout(action === "chat" ? 270000 : 30000),
+      AbortSignal.timeout(
+        action === "chat" ? 270000 : action === "image" ? 150000 : 30000,
+      ),
     ]),
   });
   if (!response.ok) {

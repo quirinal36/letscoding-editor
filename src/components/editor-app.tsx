@@ -1,4 +1,6 @@
 "use client";
+
+import { ModelSelect, type ModelSelection } from "./model-select";
 /* eslint-disable @next/next/no-img-element -- User VFS images are private data/blob URLs and cannot use remote optimization. */
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -150,6 +152,24 @@ export function EditorApp({ config }: { config: AppConfig }) {
     [projects, setProjects] = useState<Project[]>([]),
     [ready, setReady] = useState(false),
     [email, setEmail] = useState("");
+  const [modelSelection, setModelSelection] = useState<ModelSelection>({
+    userId: "",
+    id: "",
+    vision: false,
+  });
+  const lastRequest = useRef<{
+    id: string;
+    projectId: string;
+    threadId: string;
+    text: string;
+    userId: string;
+  } | null>(null);
+  const lastImageRequest = useRef<{
+    id: string;
+    projectId: string;
+    userId: string;
+    text: string;
+  } | null>(null);
   const [password, setPassword] = useState(""),
     [loginMode, setLoginMode] = useState<"password" | "link">("password"),
     [loginPending, setLoginPending] = useState(false);
@@ -1208,16 +1228,36 @@ export function EditorApp({ config }: { config: AppConfig }) {
           !(lounge.artifact && !lounge.ranking && !lounge.displayName)
         )
           throw new Error("실제 AI는 키·모델·예산 설정 후 사용할 수 있습니다.");
+        const free = lounge.artifact && !lounge.ranking && !lounge.displayName;
+        if (!free && (!modelSelection.id || modelSelection.userId !== user?.id))
+          throw new Error("사용 가능한 AI 모델을 선택해주세요.");
+        if (!free && attachments.length && !modelSelection.vision)
+          throw new Error("이미지를 이해할 수 있는 모델을 선택해주세요.");
+        const requestId = crypto.randomUUID();
+        const previous = lastRequest.current;
+        const retryOf =
+          previous?.userId === user?.id &&
+          previous?.projectId === base.id &&
+          previous.threadId === thread.id &&
+          previous.text === text
+            ? previous.id
+            : undefined;
+        lastRequest.current = {
+          id: requestId,
+          projectId: base.id,
+          threadId: thread.id,
+          text,
+          userId: user!.id,
+        };
         const response = await api(
           "chat",
           {
             projectId: base.id,
             threadId: thread.id,
             text,
-            model:
-              config.models.find(
-                (m) => !m.image && (!attachments.length || m.vision),
-              )?.id ?? "",
+            requestId,
+            retryOf,
+            model: modelSelection.userId === user?.id ? modelSelection.id : "",
             activeFile: active,
             selection: attachSelection ? selection : undefined,
             images: await uploadAttachments(
@@ -1275,6 +1315,8 @@ export function EditorApp({ config }: { config: AppConfig }) {
         await receiveProject(latest, savedBase);
         setPendingMessage(null);
         if (message) await applyGenerated(message);
+        if (message.status === "complete" && !streamError)
+          lastRequest.current = null;
         if (artifact && message.status === "complete") {
           if (
             typeof artifact.sha256 !== "string" ||
@@ -1290,6 +1332,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
       setAttachments([]);
       setAttachSelection(false);
     } catch (e) {
+      setPrompt(text);
       if (e instanceof DOMException && e.name === "TimeoutError")
         fail(
           new Error(
@@ -1327,18 +1370,39 @@ export function EditorApp({ config }: { config: AppConfig }) {
   }
   async function generateImage() {
     if (!project || !prompt.trim() || busy) return;
+    setBusy(true);
+    const controller = new AbortController();
+    abort.current = controller;
     try {
       if (config.demo)
         throw new Error(
           "이미지 생성은 외부 모델 설정과 과금 검증이 필요합니다. 이미지 파일 업로드는 사용할 수 있습니다.",
         );
       if (dirty.current) await flush();
-      setBusy(true);
       const savedBase = persistedProject.current!;
+      const requestId = crypto.randomUUID(),
+        previous = lastImageRequest.current;
+      const retryOf =
+        previous?.userId === user?.id &&
+        previous?.projectId === project.id &&
+        previous.text === prompt
+          ? previous.id
+          : undefined;
+      lastImageRequest.current = {
+        id: requestId,
+        projectId: project.id,
+        userId: user!.id,
+        text: prompt,
+      };
       const next = await (
-        await api("image", { projectId: project.id, prompt })
+        await api(
+          "image",
+          { projectId: project.id, prompt, requestId, retryOf },
+          controller.signal,
+        )
       ).json();
       await receiveProject(next, savedBase);
+      lastImageRequest.current = null;
       setPrompt("");
       setNotice("생성 이미지를 images/ 폴더에 저장했습니다.");
       await refreshUsage();
@@ -1346,6 +1410,7 @@ export function EditorApp({ config }: { config: AppConfig }) {
       fail(e);
     } finally {
       setBusy(false);
+      abort.current = null;
     }
   }
   async function download(expectedSha256?: string) {
@@ -2844,6 +2909,24 @@ export function EditorApp({ config }: { config: AppConfig }) {
                       <div ref={chatBottom} />
                     </div>
                     <form className="chat-composer" onSubmit={send}>
+                      {user && (
+                        <ModelSelect
+                          key={user.id}
+                          userId={user.id}
+                          demo={config.demo}
+                          busy={busy}
+                          onSelect={setModelSelection}
+                        />
+                      )}
+                      {config.learningLogs && !config.demo && (
+                        <small className="learning-log-notice">
+                          전송한 프롬프트는 학습 지도를 위해{" "}
+                          {config.learningLogs.retentionDays}일 보관하며 담당
+                          선생님과 권한 있는 관리자가 조회합니다.
+                          비밀번호·키·개인정보를 입력하지 마세요. 알려진 키
+                          형식은 가리지만 모든 비밀을 감지하지는 못합니다.
+                        </small>
+                      )}
                       {attachments.length > 0 && (
                         <div className="attachments">
                           {attachments.map((src, i) => (
@@ -3117,6 +3200,10 @@ export function EditorApp({ config }: { config: AppConfig }) {
               />
               <p className="error-text">
                 삭제한 프로젝트는 복원할 수 없습니다.
+                {!config.demo &&
+                  (config.learningLogs
+                    ? ` 이미 전송한 학습 기록은 별도로 최대 ${config.learningLogs.retentionDays}일 보관됩니다.`
+                    : " 이전에 수집된 학습 기록은 당시 안내된 보존 정책에 따라 별도로 유지됩니다.")}
               </p>
               {formError && (
                 <p role="alert" className="error-text">
@@ -3146,8 +3233,13 @@ export function EditorApp({ config }: { config: AppConfig }) {
           {modal === "delete-thread" && (
             <form onSubmit={deleteThread}>
               <p>
-                선택한 대화와 메시지를 삭제할까요? 삭제한 대화는 되돌릴 수
-                없습니다. 프로젝트 파일은 그대로 유지됩니다.
+                선택한 대화와 메시지를 삭제할까요?
+                {!config.demo &&
+                  (config.learningLogs
+                    ? ` 학습 기록은 별도로 최대 ${config.learningLogs.retentionDays}일 보관됩니다.`
+                    : " 이전에 수집된 학습 기록은 당시 안내된 보존 정책에 따라 별도로 유지됩니다.")}{" "}
+                삭제한 대화는 되돌릴 수 없습니다. 프로젝트 파일은 그대로
+                유지됩니다.
               </p>
               {formError && (
                 <p role="alert" className="error-text">

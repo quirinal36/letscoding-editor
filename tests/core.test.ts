@@ -578,6 +578,19 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
   let reserved = false,
     sent = false,
     settled = false;
+  const audit: Array<Record<string, unknown>> = [];
+  const trackedChat = (...args: Parameters<typeof chat>) =>
+    chat(args[0], args[1], args[2], args[3], {
+      update: async (fields) => {
+        audit.push(fields);
+      },
+      finish: async (status, fields) => {
+        audit.push({ ...fields, status });
+      },
+    });
+  let finalSaveFails = false,
+    settlementFails = false,
+    saveCalls = 0;
   let scenario = "tools",
     remaining = 2,
     providerCalls = 0,
@@ -629,6 +642,8 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
           data: [
             {
               id: "openai/gpt-6-luna",
+              supported_parameters: ["tools"],
+              architecture: { input_modalities: ["text", "image"] },
               pricing: { prompt: "0.0000001", completion: "0.0000005" },
               top_provider: { max_completion_tokens: 128000 },
             },
@@ -743,6 +758,7 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
                 prompt_tokens: 0,
                 completion_tokens: 0,
                 total_tokens: 0,
+                cost: 0,
               },
             };
             return new Response(
@@ -777,7 +793,12 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
                 finish_reason: "tool_calls",
               },
             ],
-            usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+            usage: {
+              prompt_tokens: 0,
+              completion_tokens: 0,
+              total_tokens: 0,
+              cost: 0,
+            },
           };
           return new Response(
             `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`,
@@ -877,6 +898,7 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
                 prompt_tokens: 0,
                 completion_tokens: 0,
                 total_tokens: 0,
+                cost: 0,
               },
             },
           ];
@@ -929,6 +951,7 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
               prompt_tokens: 100,
               completion_tokens: 20,
               total_tokens: 120,
+              cost: 0.00002,
             },
           },
         ];
@@ -938,8 +961,12 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
           { headers: { "content-type": "text/event-stream" } },
         );
       }
-      if (url.pathname === "/rest/v1/rpc/editor_save_project")
+      if (url.pathname === "/rest/v1/rpc/editor_save_project") {
+        saveCalls++;
+        if (finalSaveFails && saveCalls === 2)
+          return Response.json({ message: "save failed" }, { status: 400 });
         return Response.json({ revision: 0, metadataRevision: 1 });
+      }
       if (url.pathname === "/rest/v1/editor_projects")
         return Response.json({
           id: project.id,
@@ -963,6 +990,11 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
         ]);
       if (url.pathname === "/rest/v1/rpc/editor_settle_usage") {
         const body = await req.json();
+        if (settlementFails)
+          return Response.json(
+            { message: "settlement failed" },
+            { status: 400 },
+          );
         if (scenario === "checkpoint-network") {
           assert.equal(body.p_prompt, 0);
           assert.equal(body.p_completion, 0);
@@ -980,7 +1012,7 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
       }
       throw new Error(`Unexpected test endpoint: ${url.pathname}`);
     };
-    const response = await chat(
+    const response = await trackedChat(
       { id: crypto.randomUUID(), role: "student" },
       project,
       {
@@ -1026,7 +1058,7 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
       "false-progress",
     ]) {
       sent = !["tool-error", "invalid-json"].includes(scenario);
-      const failed = await chat(
+      const failed = await trackedChat(
         { id: crypto.randomUUID(), role: "student" },
         project,
         {
@@ -1077,7 +1109,7 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
       project.files["extra.js"] = textFile("// extra game logic");
       sent = false;
       largeReadCount = 0;
-      const response = await chat(
+      const response = await trackedChat(
         { id: crypto.randomUUID(), role: "student" },
         project,
         {
@@ -1121,7 +1153,7 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
       "checkpoint-recovered",
     ]) {
       checkpointCall = 0;
-      const response = await chat(
+      const response = await trackedChat(
         { id: crypto.randomUUID(), role: "student" },
         project,
         {
@@ -1178,7 +1210,7 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
     scenario = "empty";
     sent = true;
     for (expectedLounge of ["ranking", "name"] as const) {
-      const guided = await chat(
+      const guided = await trackedChat(
         { id: crypto.randomUUID(), role: "student" },
         project,
         {
@@ -1197,7 +1229,7 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
     scenario = "empty";
     remaining = 0.1;
     sent = true;
-    const limited = await chat(
+    const limited = await trackedChat(
       { id: crypto.randomUUID(), role: "student" },
       project,
       {
@@ -1216,7 +1248,7 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
     const before = providerCalls;
     await assert.rejects(
       () =>
-        chat(
+        trackedChat(
           { id: crypto.randomUUID(), role: "student" },
           project,
           {
@@ -1234,7 +1266,7 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
     assert.equal(providerCalls, before, "exhausted budget makes no paid call");
     process.env.EDITOR_AI_ENABLED = "false";
     for (const text of [loungePrompts[1], loungePrompts[3]]) {
-      const result = await chat(
+      const result = await trackedChat(
         { id: crypto.randomUUID(), role: "student" },
         project,
         {
@@ -1258,7 +1290,7 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
       );
     }
     loungeFailure = true;
-    const failedZip = await chat(
+    const failedZip = await trackedChat(
       { id: crypto.randomUUID(), role: "student" },
       project,
       {
@@ -1276,6 +1308,44 @@ test("Luna chat transport keeps ZDR, tools and budget reservation enabled", asyn
     assert.equal(failedResult.artifact, undefined);
     assert.match(failedResult.message.text, /503/);
     assert.equal(providerCalls, before);
+    assert.ok(
+      audit.some(
+        (entry) => entry.status === "complete" && entry.cost_kind === "known",
+      ),
+    );
+    assert.ok(
+      audit.some(
+        (entry) => entry.status === "partial" && entry.cost_kind === "reserved",
+      ),
+    );
+    assert.ok(audit.some((entry) => entry.status === "error"));
+    Object.assign(process.env, settings);
+    for (const failure of ["save", "settlement"]) {
+      scenario = "tools";
+      sent = false;
+      remaining = 2;
+      saveCalls = 0;
+      finalSaveFails = failure === "save";
+      settlementFails = failure === "settlement";
+      const response = await trackedChat(
+        { id: crypto.randomUUID(), role: "student" },
+        project,
+        {
+          projectId: project.id,
+          threadId: project.threads[0].id,
+          text: "설명해줘",
+          model: "openai/gpt-6-luna",
+          images: [],
+          previewErrors: [],
+        },
+        new Request("https://luna-test.example.test/api/editor"),
+      );
+      await response.text();
+      assert.equal(
+        audit.at(-1)?.status,
+        failure === "save" ? "save_failed" : "settlement_failed",
+      );
+    }
   } finally {
     globalThis.fetch = oldFetch;
     for (const key of Object.keys(settings)) {

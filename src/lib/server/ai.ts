@@ -1,3 +1,5 @@
+import type { RequestLog } from "./learning-logs";
+import { modelPrices } from "./models";
 import { requestRefusal, replaceExact, rewriteNeedsReview } from "../ai-policy";
 import { generateImageFile } from "./image";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
@@ -15,6 +17,8 @@ import { admin, aiUsage, get, reserve, save, settle } from "./repository";
 import { loungeIntent } from "../lounge-prompts";
 import { loungeGuidance, prepareLoungeArtifact } from "./lounge";
 export const chatInput = z.object({
+  requestId: z.string().uuid().optional(),
+  retryOf: z.string().uuid().optional(),
   projectId: z.string().uuid(),
   threadId: z.string().uuid(),
   text: z.string().trim().min(1).max(12000),
@@ -89,37 +93,13 @@ export function assertFilesRead(
       );
   }
 }
-export async function modelPrices(id: string) {
-  const response = await fetch("https://openrouter.ai/api/v1/models?zdr=true", {
-    signal: AbortSignal.timeout(10000),
-    cache: "no-store",
-  });
-  if (!response.ok)
-    throw new Error("모델 가격을 확인할 수 없어 AI 요청을 중단합니다.");
-  const json = await response.json();
-  const model = json.data?.find((m: { id: string }) => m.id === id);
-  const input = Number(model?.pricing?.prompt),
-    output = Number(model?.pricing?.completion),
-    maxOutputTokens = Number(model?.top_provider?.max_completion_tokens);
-  if (
-    !model ||
-    !Number.isFinite(input) ||
-    !Number.isFinite(output) ||
-    input < 0 ||
-    output < 0 ||
-    !Number.isSafeInteger(maxOutputTokens) ||
-    maxOutputTokens < 1
-  )
-    throw new Error(
-      "선택 모델의 ZDR 지원과 토큰 가격을 확인할 수 없습니다. 다른 모델을 선택해주세요.",
-    );
-  return { input, output, maxOutputTokens };
-}
+export { modelPrices } from "./models";
 export async function chat(
   user: SessionUser,
   project: Project,
   input: z.infer<typeof chatInput>,
   request: Request,
+  log: RequestLog = { update: async () => {}, finish: async () => {} },
 ) {
   const lounge = loungeIntent(input.text);
   if (
@@ -133,6 +113,7 @@ export async function chat(
     let artifact: Awaited<ReturnType<typeof prepareLoungeArtifact>> | undefined;
     const message: ChatMessage = {
       id: crypto.randomUUID(),
+      requestId: input.requestId,
       role: "assistant",
       status: "complete",
       proposals: [],
@@ -155,6 +136,7 @@ export async function chat(
     latestThread.messages.push(
       {
         id: crypto.randomUUID(),
+        requestId: input.requestId,
         role: "user",
         text: input.text,
         status: "complete",
@@ -165,6 +147,7 @@ export async function chat(
     if (latestThread.title === "새 대화")
       latestThread.title = input.text.slice(0, 30);
     await save(user, latest, latest.revision, false);
+    await log.finish(message.status, { cost_usd: 0, cost_kind: "free" });
     return new Response(
       JSON.stringify({
         type: "done",
@@ -202,6 +185,7 @@ export async function chat(
   ) {
     const message: ChatMessage = {
       id: crypto.randomUUID(),
+      requestId: input.requestId,
       role: "assistant",
       status: "complete",
       proposals: [],
@@ -212,6 +196,7 @@ export async function chat(
     thread.messages.push(
       {
         id: crypto.randomUUID(),
+        requestId: input.requestId,
         role: "user",
         text: input.text,
         proposals: [],
@@ -221,6 +206,11 @@ export async function chat(
     );
     if (thread.title === "새 대화") thread.title = input.text.slice(0, 30);
     await save(user, project, project.revision, false);
+    await log.finish("rejected", {
+      reason: "policy",
+      cost_usd: 0,
+      cost_kind: "free",
+    });
     return new Response(JSON.stringify({ type: "done", message }) + "\n", {
       headers: {
         "Content-Type": "application/x-ndjson",
@@ -265,10 +255,13 @@ export async function chat(
       historyBytes +
       new TextEncoder().encode(context).length +
       20000 +
+      new TextEncoder().encode(input.text + (input.selection ?? "")).length +
       readByteLimit) *
       maxSteps *
       prices.input +
     input.images.length * positive("EDITOR_AI_IMAGE_INPUT_RESERVE_USD");
+  if (input.images.length && !prices.vision)
+    throw new Error("선택 모델은 이미지 입력을 지원하지 않습니다.");
   const imageIntent =
     /이미지|그림|사진|image/i.test(input.text) &&
     /생성|그려|만들|generate/i.test(input.text);
@@ -285,7 +278,7 @@ export async function chat(
     usage.dailyLimitUsd - usage.costUsd - usage.reservedUsd,
     usage.monthlyLimitUsd - usage.monthCostUsd - usage.monthReservedUsd,
   );
-  const fixedCost = inputCost + imageReserve;
+  const fixedCost = inputCost + imageReserve + maxSteps * prices.request;
   // Earlier output is included again in subsequent calls.
   const outputCost =
     maxSteps * prices.output + ((maxSteps * (maxSteps - 1)) / 2) * prices.input;
@@ -303,13 +296,25 @@ export async function chat(
     fixedCost + maxOutputTokens * outputCost,
     ceiling,
   );
-  const reservation = await reserve(user, reservedUsd);
+  const reservation = await reserve(user, reservedUsd, input.requestId);
+  try {
+    await log.update({
+      status: "running",
+      reservation_id: reservation,
+      cost_usd: reservedUsd,
+      cost_kind: "reserved",
+    });
+  } catch (error) {
+    await settle(user, reservation, 0, 0, 0);
+    throw error;
+  }
   const originalProject = project;
   let loungeArtifact:
     Awaited<ReturnType<typeof prepareLoungeArtifact>> | undefined;
   const checkpoints: { summary: string; nextStep: string }[] = [];
   const proposals: Proposal[] = [],
     tools: NonNullable<ChatMessage["tools"]> = [];
+  let imageCostsKnown = true;
   let readCount = 0,
     readBytes = 0,
     mutationCount = 0,
@@ -415,7 +420,13 @@ export async function chat(
   const model = createOpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY!,
     compatibility: "strict",
-    extraBody: { provider: { data_collection: "deny", zdr: true } },
+    extraBody: {
+      provider: {
+        data_collection: "deny",
+        zdr: true,
+        require_parameters: true,
+      },
+    },
   }).chat(
     input.model,
     input.model === "openai/gpt-6-luna"
@@ -424,6 +435,7 @@ export async function chat(
   );
   const assistant: ChatMessage = {
     id: crypto.randomUUID(),
+    requestId: input.requestId,
     role: "assistant",
     text: "",
     proposals,
@@ -432,6 +444,7 @@ export async function chat(
   };
   const userMessage: ChatMessage = {
     id: crypto.randomUUID(),
+    requestId: input.requestId,
     role: "user",
     text: input.text,
     proposals: [],
@@ -439,6 +452,7 @@ export async function chat(
     selection: input.selection,
   };
   const images: string[] = [];
+  let attachmentsReady = false;
   try {
     for (const path of input.images) {
       if (
@@ -469,6 +483,7 @@ export async function chat(
       if (!valid) throw new Error("첨부 이미지 형식이 올바르지 않습니다.");
       images.push(`data:${data.type};base64,${bytes.toString("base64")}`);
     }
+    attachmentsReady = true;
     userMessage.images = [...input.images];
     thread.messages.push(userMessage);
     thread.title =
@@ -476,6 +491,10 @@ export async function chat(
     await save(user, project, project.revision, false);
   } catch (error) {
     await settle(user, reservation, 0, 0, 0);
+    await log.finish(attachmentsReady ? "save_failed" : "error", {
+      cost_usd: 0,
+      cost_kind: "free",
+    });
     throw error;
   }
   const encoder = new TextEncoder(),
@@ -488,6 +507,7 @@ export async function chat(
             controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
           } catch {}
         };
+        let costKnown = false;
         let cost = reservedUsd,
           promptTokens = 0,
           completionTokens = 0;
@@ -571,6 +591,7 @@ export async function chat(
                         mutationCount++;
                         // Keep the full reservation on provider/upload failure.
                         imageCost = imageReserve;
+                        imageCostsKnown = false;
                         const generated = await generateImageFile(
                           user,
                           project.id,
@@ -578,6 +599,7 @@ export async function chat(
                           abort,
                         );
                         imageCost = generated.cost;
+                        imageCostsKnown = generated.costKnown;
                         imagePromptTokens = generated.promptTokens;
                         imageCompletionTokens = generated.completionTokens;
                         const proposal: Proposal = {
@@ -821,13 +843,32 @@ export async function chat(
                 });
             } else if (part.type === "error") throw part.error;
           }
+          const response = await result.response;
+          await log.update({ actual_model: response.modelId });
           const usage = await result.totalUsage;
           promptTokens = (usage.inputTokens ?? 0) + imagePromptTokens;
           completionTokens = (usage.outputTokens ?? 0) + imageCompletionTokens;
-          cost =
-            (usage.inputTokens ?? 0) * prices.input +
-            (usage.outputTokens ?? 0) * prices.output +
-            imageCost;
+          const steps = await result.steps;
+          const costs = steps
+            .map((step) => step.providerMetadata?.openrouter?.usage)
+            .map((usage) =>
+              usage && typeof usage === "object" && "cost" in usage
+                ? usage.cost
+                : undefined,
+            );
+          costKnown =
+            imageCostsKnown &&
+            costs.length > 0 &&
+            costs.every(
+              (value) =>
+                typeof value === "number" &&
+                Number.isFinite(value) &&
+                value >= 0,
+            );
+          cost = costKnown
+            ? costs.reduce<number>((sum, value) => sum + Number(value), 0) +
+              imageCost
+            : reservedUsd;
           assistant.text = assistant.text
             .replace(/```[\s\S]*?(?:```|$)/g, "")
             .trim();
@@ -924,12 +965,34 @@ export async function chat(
               "대화 저장 중 파일이 변경되었습니다. 프로젝트를 다시 열어 확인하세요.",
           });
         }
+        let settled = false;
         try {
           await settle(user, reservation, cost, promptTokens, completionTokens);
+          settled = true;
         } catch {
           send({
             type: "error",
             error: "사용량 정산 실패. 관리자 확인이 필요합니다.",
+          });
+        }
+        try {
+          await log.finish(
+            !settled
+              ? "settlement_failed"
+              : !saved
+                ? "save_failed"
+                : assistant.status,
+            {
+              cost_usd: cost,
+              cost_kind: costKnown ? "known" : "reserved",
+              prompt_tokens: promptTokens,
+              completion_tokens: completionTokens,
+            },
+          );
+        } catch {
+          send({
+            type: "error",
+            error: "학습 기록 상태 저장 실패. 관리자 확인이 필요합니다.",
           });
         }
         if (saved)

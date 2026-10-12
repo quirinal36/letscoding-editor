@@ -2,6 +2,16 @@
 
 > 에픽은 여러 작업을 묶는 추적용 이슈다. 체크박스의 준비 키는 등록 후 실제 이슈 링크로 교체한다.
 
+## 추가 에픽 2026-10-11
+
+| 에픽 | 저장소 | 마일스톤 | 하위 이슈 |
+| --- | --- | --- | --- |
+| [E-12 — 최신 AI 모델 선택·호환성·예산 통제](ai-models-learning-logs.md#e-12) | letscoding-editor | M7 | I-053~I-055 |
+| [E-13 — 프롬프트 요청 기록·학생 안내·통합 인수](ai-models-learning-logs.md#e-13) | letscoding-editor | M7 | I-056~I-058 |
+| [E-14 — 라운지 AI 학습 기록 DB·담당 교사 조회](ai-models-learning-logs.md#e-14) | letscoding_lounge | LOUNGE-M7 | L-005~L-008 |
+
+목적·자식 체크리스트·완료 기준은 [추가 계획](ai-models-learning-logs.md)에 있다. E-11은 [Supabase 연결 계획](../09-supabase-integration-plan.md)을 참조한다.
+
 ## E-00 — 착수 결정과 기술 검증
 
 - 대상 저장소: quirinal36/letscoding-editor

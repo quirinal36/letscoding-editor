@@ -1656,3 +1656,7 @@ pre {
 .database-results .db-table-scroll {
   max-height: none;
 }
+
+.model-select { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.model-select select { flex: 1; min-width: 0; max-width: 100%; }
+.model-select small, .learning-log-notice { display: block; width: 100%; color: var(--muted); font-size: 11px; line-height: 1.5; margin-bottom: 6px; }

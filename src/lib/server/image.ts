@@ -77,8 +77,15 @@ export async function generateImageFile(
       size: bytes.length,
       storagePath,
     } as ProjectFile,
+    actualModel: typeof result.model === "string" ? result.model : null,
+    costKnown:
+      typeof result.usage?.cost === "number" &&
+      Number.isFinite(cost) &&
+      cost >= 0,
     cost:
-      Number.isFinite(cost) && cost >= 0
+      typeof result.usage?.cost === "number" &&
+      Number.isFinite(cost) &&
+      cost >= 0
         ? cost
         : positive("EDITOR_AI_IMAGE_OUTPUT_RESERVE_USD"),
     promptTokens: Number(result.usage?.prompt_tokens ?? 0),

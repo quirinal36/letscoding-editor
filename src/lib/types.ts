@@ -18,6 +18,7 @@ export type Proposal = {
 };
 export type ChatMessage = {
   id: string;
+  requestId?: string;
   role: "user" | "assistant";
   text: string;
   proposals: Proposal[];
@@ -84,13 +85,17 @@ export type AppConfig = {
   image: boolean;
   deploy: boolean;
   supabaseLink: boolean;
+  learningLogs?: { retentionDays: number; version: string } | null;
   models: {
     id: string;
     label: string;
     vision: boolean;
     image: boolean;
-    inputPrice?: number;
-    outputPrice?: number;
+    provider?: string;
+    available?: boolean;
+    reason?: string;
+    inputPrice?: number | null;
+    outputPrice?: number | null;
   }[];
   /** Milliseconds between automatic saves while there are unsaved edits. */
   autosaveMs: number;

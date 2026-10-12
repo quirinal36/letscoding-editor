@@ -42,6 +42,22 @@
       "number": 6,
       "url": "https://github.com/yudanah/letscoding_lounge/milestone/6",
       "title": "Editor M4 — 에디터 연동·배포 계약"
+    },
+    "M7": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 8,
+      "url": "https://github.com/quirinal36/letscoding-editor/milestone/8",
+      "title": "M7 — AI 모델 선택·프롬프트 학습 기록",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
+    },
+    "LOUNGE-M7": {
+      "repo": "yudanah/letscoding_lounge",
+      "number": 7,
+      "url": "https://github.com/yudanah/letscoding_lounge/milestone/7",
+      "title": "Editor M7 — AI 학습 기록·담당 교사 조회",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
     }
   },
   "issues": {
@@ -422,7 +438,112 @@
       "number": 58,
       "url": "https://github.com/quirinal36/letscoding-editor/issues/58",
       "title": "F-005 — React·TS 번들링 및 WebContainers 라이선스 검토"
+    },
+    "E-12": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 73,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/73",
+      "title": "[EPIC] E-12 — 최신 AI 모델 선택·호환성·예산 통제",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
+    },
+    "E-13": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 74,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/74",
+      "title": "[EPIC] E-13 — 프롬프트 요청 기록·학생 안내·통합 인수",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
+    },
+    "E-14": {
+      "repo": "yudanah/letscoding_lounge",
+      "number": 219,
+      "url": "https://github.com/yudanah/letscoding_lounge/issues/219",
+      "title": "[EPIC] E-14 — 라운지 AI 학습 기록 DB·담당 교사 조회",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
+    },
+    "I-053": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 75,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/75",
+      "title": "I-053 — 6개 제조사 모델 카탈로그·최신 후보·ZDR 호환성 검증",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
+    },
+    "I-054": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 76,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/76",
+      "title": "I-054 — 사용자별 AI 모델 선택 드롭다운",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
+    },
+    "I-055": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 77,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/77",
+      "title": "I-055 — 선택 모델 서버 검증·도구 호환·예산 정산",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
+    },
+    "L-005": {
+      "repo": "yudanah/letscoding_lounge",
+      "number": 220,
+      "url": "https://github.com/yudanah/letscoding_lounge/issues/220",
+      "title": "L-005 — AI 학습 기록 보존·삭제·열람 안내 정책 확정",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
+    },
+    "L-006": {
+      "repo": "yudanah/letscoding_lounge",
+      "number": 221,
+      "url": "https://github.com/yudanah/letscoding_lounge/issues/221",
+      "title": "L-006 — AI 요청 기록 공유 DB·권한·보존 정리 계약",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
+    },
+    "I-056": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 78,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/78",
+      "title": "I-056 — 프롬프트 서버 기록·요청 상태·재시도 연결",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
+    },
+    "I-057": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 79,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/79",
+      "title": "I-057 — 프롬프트 기록 안내·비밀값 마스킹·삭제 UX",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
+    },
+    "L-007": {
+      "repo": "yudanah/letscoding_lounge",
+      "number": 222,
+      "url": "https://github.com/yudanah/letscoding_lounge/issues/222",
+      "title": "L-007 — 담당 학생 AI 기록 조회 API·기관 격리",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
+    },
+    "L-008": {
+      "repo": "yudanah/letscoding_lounge",
+      "number": 223,
+      "url": "https://github.com/yudanah/letscoding_lounge/issues/223",
+      "title": "L-008 — 라운지 관리자 AI 학습 기록 목록·상세 화면",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
+    },
+    "I-058": {
+      "repo": "quirinal36/letscoding-editor",
+      "number": 80,
+      "url": "https://github.com/quirinal36/letscoding-editor/issues/80",
+      "title": "I-058 — 모델 선택·교사 학습 기록 통합 인수·운영 전환",
+      "registered_on": "2026-10-11",
+      "verified_on": "2026-10-11"
     }
   },
-  "verified_on": "2026-10-04"
+  "verified_on": "2026-10-04",
+  "latest_addition_on": "2026-10-11"
 }

@@ -1,3 +1,4 @@
+import { MODEL_CATALOG } from "../model-catalog";
 import type { AppConfig } from "../types";
 export function positive(name: string) {
   const value = Number(process.env[name]);
@@ -21,7 +22,7 @@ export function appConfig(): AppConfig {
     process.env.NODE_ENV !== "production" &&
     (process.env.EDITOR_DEMO_MODE === "true" ||
       (!cloud && process.env.EDITOR_DEMO_MODE !== "false"));
-  const models = [
+  const legacyModels = [
     ["CODE", "코딩", false, false],
     ["AUX", "가벼운 대화", false, false],
     ["VISION", "이미지 이해", true, false],
@@ -33,12 +34,27 @@ export function appConfig(): AppConfig {
           {
             id,
             label: String(label),
+            provider: id.split("/")[0],
             vision: Boolean(vision),
             image: Boolean(image),
           },
         ]
       : [];
   });
+  const configured = process.env.OPENROUTER_MODELS?.trim()
+    ? process.env.OPENROUTER_MODELS.split(",")
+        .map((id) => id.trim())
+        .filter(Boolean)
+    : undefined;
+  const models = configured
+    ? [...new Set(configured)]
+        .slice(0, 12)
+        .flatMap((id) => {
+          const candidate = MODEL_CATALOG.find((m) => m.id === id);
+          return candidate ? [{ ...candidate, image: false }] : [];
+        })
+        .concat(legacyModels.filter((m) => m.image))
+    : [...new Map(legacyModels.map((m) => [m.id, m])).values()];
   const budget =
     positive("EDITOR_AI_DAILY_LIMIT_USD") &&
     positive("EDITOR_AI_MONTHLY_LIMIT_USD") &&
@@ -68,6 +84,7 @@ export function appConfig(): AppConfig {
     supabaseLink:
       demo || (cloud && process.env.EDITOR_SUPABASE_LINK_ENABLED === "true"),
     models,
+    learningLogs: learningLogPolicy(),
     autosaveMs: autosaveMs(),
   };
 }
@@ -86,4 +103,18 @@ export function turnReservation(estimate: number, ceiling: number) {
       "현재 모델과 문맥이 요청당 예산을 초과합니다. 대화를 새로 시작하거나 모델을 변경해주세요.",
     );
   return amount;
+}
+
+export function learningLogRetention() {
+  const days = positive("EDITOR_AI_LOG_RETENTION_DAYS");
+  const version = process.env.EDITOR_AI_LOG_POLICY_VERSION?.trim();
+  return Number.isInteger(days) && days > 0 && days <= 3650 && version
+    ? { retentionDays: days, version: version.slice(0, 100) }
+    : null;
+}
+
+export function learningLogPolicy() {
+  return process.env.EDITOR_AI_LOGGING_ENABLED === "true"
+    ? learningLogRetention()
+    : null;
 }

@@ -25,3 +25,9 @@
    - 마일스톤 M6·에픽 E-11·이슈 9개 등록 결과, 설계 요약, 열린 결정
 13. [라운지 개발팀 전달 문서 — Supabase DB 연결](./10-lounge-supabase-handoff.md)
    - 공유 DB migration, Play CSP, 배포 설정 자동 연결 제안과 적용·인수 기준
+
+14. [AI 모델 선택·교사 프롬프트 조회 이슈 계획](./github-planning/ai-models-learning-logs.md)
+   - M7·Editor M7 마일스톤, 에픽 3개·하위 이슈 10개, 확정 범위·모델 후보·보존 정책과 저장소 간 의존성
+
+15. [AI 모델 선택·학습 기록 구현 결과와 오전 인수 안내](./11-ai-models-learning-logs-handoff.md)
+   - 에픽 #73·#74 코드, 라운지 연동, 자동 검증, 2026-10-13 수동 정책·DB·실모델 인수 순서

@@ -25,7 +25,19 @@ test.beforeEach(async ({ page }) => {
   await page.route("https://editor-auth.test/**", (route) =>
     route.fulfill({ status: 400, json: { msg: "Unexpected auth request" } }),
   );
-  await page.route("**/api/models", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/models", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: "test/model",
+          label: "Test model",
+          image: false,
+          vision: true,
+          available: true,
+        },
+      ],
+    }),
+  );
   await page.route("**/api/editor", (route) => {
     const body = route.request().postDataJSON();
     expect(body).not.toHaveProperty("password");
@@ -1418,5 +1430,157 @@ test("administrator DB connection keeps secrets out of project files and reads t
   expect(JSON.stringify(project)).not.toContain(secret);
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(
     secret,
+  );
+});
+
+test("model selection is user-scoped, locked in flight, survives reload and recovers removed models without losing rejected prompts", async ({
+  page,
+}) => {
+  const { createProject } = await import("../../src/lib/templates");
+  const project = createProject("blank", "모델 선택 검증");
+  let account = userId;
+  const secondId = "00000000-0000-4000-8000-000000000002";
+  let available = [
+    {
+      id: "test/first",
+      label: "첫 모델",
+      provider: "OpenAI",
+      image: false,
+      vision: false,
+      available: true,
+    },
+    {
+      id: "test/second",
+      label: "둘째 모델",
+      provider: "Google",
+      image: false,
+      vision: true,
+      available: true,
+    },
+  ];
+  const sent: Array<{ model: string; requestId: string; retryOf?: string }> =
+    [];
+  let release: (() => void) | undefined;
+  await page.route("**/api/models", (route) =>
+    route.fulfill({ json: available }),
+  );
+  await page.route(
+    "https://editor-auth.test/auth/v1/token?grant_type=password",
+    (route) =>
+      route.fulfill({
+        json: { ...session(), user: { ...session().user, id: account } },
+      }),
+  );
+  await page.route("https://editor-auth.test/auth/v1/logout**", (route) =>
+    route.fulfill({ status: 204 }),
+  );
+  await page.route("**/api/editor", async (route) => {
+    const body = route.request().postDataJSON();
+    if (body.action === "chat") {
+      sent.push(body);
+      if (sent.length === 1)
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      return route.fulfill({
+        status: 503,
+        json: { error: "학습 기록을 저장하지 못해 요청을 중단했습니다." },
+      });
+    }
+    return route.fulfill({
+      json:
+        body.action === "session"
+          ? { id: account, role: "student" }
+          : body.action === "list"
+            ? [project]
+            : body.action === "usage"
+              ? usage
+              : body.action === "storage"
+                ? { usedBytes: 0, limitBytes: 1000000 }
+                : project,
+    });
+  });
+  await page.goto("/");
+  await page.getByLabel("이메일", { exact: true }).fill(email);
+  await page.getByLabel("비밀번호", { exact: true }).fill(password);
+  await page
+    .getByRole("button", { name: "이메일로 로그인", exact: true })
+    .click();
+  await page
+    .locator(".project-list > div > button:first-child")
+    .first()
+    .click();
+  await expect(page.getByLabel("AI 모델", { exact: true })).toHaveValue(
+    "test/first",
+  );
+  await page.getByLabel("AI 모델", { exact: true }).selectOption("test/second");
+  await expect(page.locator(".learning-log-notice")).toContainText("7일");
+  await page.reload();
+  await page
+    .locator(".project-list > div > button:first-child")
+    .first()
+    .click();
+  await expect(page.getByLabel("AI 모델", { exact: true })).toHaveValue(
+    "test/second",
+  );
+  const prompt = page.getByLabel("AI에게 보낼 메시지");
+  await prompt.fill("실패해도 보존할 프롬프트");
+  await prompt.press("Enter");
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0].model).toBe("test/second");
+  expect(sent[0].requestId).toMatch(/^[0-9a-f-]{36}$/);
+  await expect(page.getByLabel("AI 모델", { exact: true })).toBeDisabled();
+  release!();
+  await expect(prompt).toHaveValue("실패해도 보존할 프롬프트");
+  await prompt.press("Enter");
+  await expect.poll(() => sent.length).toBe(2);
+  expect(sent[1].retryOf).toBe(sent[0].requestId);
+  await expect(prompt).toBeEnabled();
+  await page.getByRole("button", { name: "로그아웃", exact: true }).click();
+  account = secondId;
+  await page.getByLabel("이메일", { exact: true }).fill("second@example.test");
+  await page.getByLabel("비밀번호", { exact: true }).fill(password);
+  await page
+    .getByRole("button", { name: "이메일로 로그인", exact: true })
+    .click();
+  await page
+    .locator(".project-list > div > button:first-child")
+    .first()
+    .click();
+  await expect(page.getByLabel("AI 모델", { exact: true })).toHaveValue(
+    "test/first",
+  );
+  await page.getByLabel("AI 모델", { exact: true }).selectOption("test/second");
+  await page.getByLabel("AI 모델", { exact: true }).selectOption("test/first");
+  await page
+    .getByLabel("첨부할 이미지")
+    .setInputFiles({
+      name: "fixture.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL9sAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    });
+  await prompt.fill("첨부 이미지 설명해줘");
+  await prompt.press("Enter");
+  await expect(page.locator(".error-banner")).toContainText(
+    "이미지를 이해할 수 있는 모델",
+  );
+  expect(sent.length).toBe(2);
+  await expect(prompt).toHaveValue("첨부 이미지 설명해줘");
+  await page.getByLabel("첨부 이미지 1 제거").click();
+  await page.getByLabel("AI 모델", { exact: true }).selectOption("test/second");
+  available = available.slice(0, 1);
+  await page.getByRole("button", { name: "모델 목록 새로고침" }).click();
+  await expect(page.getByLabel("AI 모델", { exact: true })).toHaveValue(
+    "test/first",
+  );
+  await expect(page.locator(".model-select")).toContainText("선택을 초기화");
+  available = [];
+  await page.getByRole("button", { name: "모델 목록 새로고침" }).click();
+  await expect(page.getByLabel("AI 모델", { exact: true })).toBeDisabled();
+  await expect(page.locator(".model-select")).toContainText(
+    "사용 가능한 모델이 없습니다",
   );
 });
